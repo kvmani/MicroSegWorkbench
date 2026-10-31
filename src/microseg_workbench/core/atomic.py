@@ -11,6 +11,7 @@ import hashlib
 import json
 import os
 import shutil
+import time
 import uuid
 from pathlib import Path
 from typing import Any
@@ -35,6 +36,22 @@ def canonical_json(payload: Any) -> str:
     return json.dumps(payload, sort_keys=True, separators=(",", ":"), ensure_ascii=True)
 
 
+def replace_with_retry(src: Path, dst: Path, attempts: int = 20, delay_s: float = 0.05) -> None:
+    """``os.replace`` that tolerates Windows sharing violations.
+
+    On Windows, replacing a file fails with PermissionError while another process (e.g. the UI polling
+    ``status.json``) has it open; such reads take milliseconds, so a short retry succeeds.
+    """
+    for attempt in range(attempts):
+        try:
+            os.replace(src, dst)
+            return
+        except PermissionError:
+            if os.name != "nt" or attempt == attempts - 1:
+                raise
+            time.sleep(delay_s)
+
+
 def write_bytes_atomic(path: Path, data: bytes) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     tmp = path.with_name(f".{path.name}.{uuid.uuid4().hex}.tmp")
@@ -43,7 +60,7 @@ def write_bytes_atomic(path: Path, data: bytes) -> None:
             fh.write(data)
             fh.flush()
             os.fsync(fh.fileno())
-        os.replace(tmp, path)
+        replace_with_retry(tmp, path)
     finally:
         if tmp.exists():
             tmp.unlink()

@@ -1,6 +1,9 @@
 # Changelog
 
 ## Unreleased (0.4.0)
+- CI: full test suite on Windows and Linux (GitHub Actions); first run green on both.
+- Windows: atomic file replacement retries briefly on sharing violations (UI reading status.json while training
+  replaces it).
 - Augmentation: random Gaussian blur; plugin extension point for image-only operations (`MSW_PLUGINS`), recorded
   with file hashes in each run; example plugin with unsharp mask and vignette.
 - Display-only previews and overlays are capped (768 px per-epoch previews, 1024 px evaluation/prediction panels) so

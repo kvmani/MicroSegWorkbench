@@ -58,9 +58,9 @@ and the highest-value remaining gaps (packaged Windows build, multi-process augm
 
 ## Verification
 - 2026-10-31, Linux sandbox, Python 3.13.18, torch 2.15.0 (CUDA build, no GPU present), numpy 2.5.3, Pillow 12.3,
-  PySide6 6.12 offscreen: `python -m pytest -q` -> **115 passed, 2 skipped** in ~1.5 min (the 2 skips need HydrideSegmentation);
+  PySide6 6.12 offscreen: `python -m pytest -q` -> **116 passed, 2 skipped** in ~1.5 min (the 2 skips need HydrideSegmentation);
   with `MSW_HYDRIDESEG_PATH=<HydrideSegmentation checkout @ main, v2.0.0>` and scipy 1.18.1 / scikit-image 0.26.0 /
-  matplotlib 3.11.2 installed -> **117 passed**.
+  matplotlib 3.11.2 installed -> **118 passed**.
   - Manual smoke test: 12 synthetic 700x700 images, `images_in_memory: 3`, 128 px patches - tiled evaluation
     scored all 1,470,000 test pixels at full resolution; peak RSS ~0.8 GB; 11 s on 4 cores.
   - Post-roadmap: early stopping (forced plateau -> stops after patience, evaluates epoch-1 checkpoint); excluded
@@ -91,12 +91,17 @@ and the highest-value remaining gaps (packaged Windows build, multi-process augm
     0/90 deg, zero distance for identical masks, end-to-end run and predictions analysis, Results tab); registry page
     private by default and HTML-escaped; frozen launch command; service imports without third-party packages.
   - Numerical regression: quick preset learns all synthetic classes (IoU > 0.8) for seeds 1 and 2.
+- **CI on GitHub Actions (2026-10-31, run 41244484430, commit ecd3a59): Windows (windows-latest, Python 3.12.10, CPU
+  PyTorch, Qt offscreen) 115 passed, 2 skipped; Linux (ubuntu-latest) passed.** This covers the Windows file-system
+  semantics (exclusive create via os.rename, directory publication), QProcess training launch, multi-process blob
+  writes and the metadata service on Windows. Still not covered: NVIDIA GPU, SMB share, real desktop session, the
+  PowerShell installer.
 - Seed sweep (4 seeds, synthetic): quick preset test feature mIoU 0.956-0.982.
 - UI screenshots of training resources tab (simulated GPU) and compare page inspected manually.
 
 ## Known gaps (honest coverage)
-- **Office verification outstanding for everything**: Windows install script (`deploy/windows/install.ps1`) and
-  launcher were written but never executed; no NVIDIA GPU run; no SMB share; no VM deployment; OnlineAnnotator import
+- **Office verification outstanding**: the test suite passes on a Windows CI runner, but the Windows install script
+  (`deploy/windows/install.ps1`) and launcher were never executed, and there is no interactive desktop check; no NVIDIA GPU run; no SMB share; no VM deployment; OnlineAnnotator import
   tested only against a fixture built from its export code, not a real export ZIP.
 - No packaged (frozen) Windows executable is built; only the launch path for one is implemented and tested.
 - Independent scientific review (Phase 4 deliverable) not done - must be a separate reviewer.

@@ -26,6 +26,7 @@ pip install -e .[all]        # numpy, pillow, torch, psutil, PySide6, pytest
 msw-gui                      # desktop app; press "Create demo data" in step 1
 msw quickstart               # or: synthetic data -> dataset -> quick CPU training -> evaluation
 python -m pytest -q          # tests (real tiny CPU training; no GPU or network needed)
+                             # CI runs the same suite on Windows and Linux (.github/workflows/tests.yml)
 ```
 
 Workspace folder (datasets and runs) defaults to `~/MicroSegWorkbench-workspace`; override with

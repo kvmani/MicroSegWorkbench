@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import os
 import uuid
 from pathlib import Path
 from typing import Any, Callable, Iterable
@@ -11,6 +10,7 @@ import numpy as np
 import torch
 import torch.nn.functional as F
 
+from ..core.atomic import replace_with_retry
 from ..core.augment import IGNORE_INDEX
 from ..core.metrics import confusion_matrix, metrics_from_confusion
 from ..core.preprocess import Preprocess, normalize, resize_image
@@ -149,7 +149,7 @@ def save_checkpoint(path: Path, model: UNet, payload: dict[str, Any]) -> None:
     tmp = path.with_name(f".{path.name}.{uuid.uuid4().hex}.tmp")
     try:
         torch.save(data, tmp)
-        os.replace(tmp, path)
+        replace_with_retry(tmp, path)
     finally:
         if tmp.exists():
             tmp.unlink()

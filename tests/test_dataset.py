@@ -115,3 +115,21 @@ def test_remove_stale_staging_ignores_real_versions(tmp_path):
     removed = remove_stale_staging(tmp_path)
     assert [p.name for p in removed] == [".staging-x"]
     assert (tmp_path / "keep").exists()
+
+
+def test_replace_retries_windows_sharing_violations(tmp_path, monkeypatch):
+    from microseg_workbench.core import atomic
+
+    calls = {"n": 0}
+    real = atomic.os.replace
+
+    def flaky(src, dst):
+        calls["n"] += 1
+        if calls["n"] < 3:
+            raise PermissionError("[WinError 5] Access is denied")
+        real(src, dst)
+
+    monkeypatch.setattr(atomic.os, "replace", flaky)
+    monkeypatch.setattr(atomic.os, "name", "nt")
+    atomic.write_bytes_atomic(tmp_path / "status.json", b"{}")
+    assert (tmp_path / "status.json").read_bytes() == b"{}" and calls["n"] == 3
