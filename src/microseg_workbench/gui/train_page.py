@@ -93,6 +93,8 @@ class TrainPage(QWidget):
         self.epochs_seen: list[int] = []
         self.final_state: str | None = None
         self.t0: float | None = None
+        self.series_remaining = 0
+        self.series_runs: list[str] = []
 
         self.dataset = QComboBox()
         self.preset = QComboBox()
@@ -134,6 +136,10 @@ class TrainPage(QWidget):
         self.in_memory.setToolTip("How many training images are kept in memory at once. 'All' is fastest. For "
                                   "datasets larger than the computer's memory, set a number: images are then processed "
                                   "in blocks of that size (recorded with the run, so results stay reproducible).")
+        self.repeats = QSpinBox()
+        self.repeats.setRange(1, 20)
+        self.repeats.setToolTip("Train this many runs one after another with seeds seed, seed+1, ... to see how much "
+                                "the result depends on chance. Compare them in step 5 (mean and spread are shown).")
         self.patience = QSpinBox()
         self.patience.setRange(0, 1000)
         self.patience.setSpecialValueText("Off")
@@ -157,6 +163,7 @@ class TrainPage(QWidget):
         form.addRow("Learning rate:", self.lr)
         form.addRow("Loss:", self.loss)
         form.addRow("Random seed:", self.seed)
+        form.addRow("Repeat with seeds:", self.repeats)
         form.addRow("Device:", self.device)
         form.addRow("Mixed precision:", self.precision)
         form.addRow("Early stopping after:", self.patience)
@@ -300,8 +307,17 @@ class TrainPage(QWidget):
     def start(self) -> None:
         if self.is_running():
             return
+        self.series_remaining = self.repeats.value() - 1
+        self.series_runs = []
+        self._start_one(0)
+
+    def _start_one(self, seed_offset: int) -> None:
         try:
             cfg = self.build_config()
+            if seed_offset:
+                from dataclasses import replace
+
+                cfg = replace(cfg, seed=cfg.seed + seed_offset)
         except (TrainConfigError, AugmentConfigError, ValueError) as exc:
             self.ctx.error(self, "Cannot start training", str(exc))
             return
@@ -313,6 +329,7 @@ class TrainPage(QWidget):
         payload = cfg.to_dict()
         payload.pop("dataset_id")
         cfg_path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+        self.series_runs.append(run_id)
         self._launch(RunDir(ws.runs_dir / run_id),
                      ["train", cfg.dataset_id, "--config", str(cfg_path), "--run-id", run_id, "--quiet"])
 
@@ -362,6 +379,7 @@ class TrainPage(QWidget):
         if not self.is_running() or self.run is None:
             return
         if self.cancel_btn.text() == "Cancel":
+            self.series_remaining = 0  # cancelling also cancels the remaining repeats
             self.run.request_cancel()
             self.cancel_btn.setText("Stop immediately")
             self.status.setText("Cancelling after the current step...")
@@ -392,6 +410,14 @@ class TrainPage(QWidget):
             self.status.setText(f"<span style='color:#b42318'><b>Training failed:</b> {message}</span>")
             self.ctx.error(self, "Training failed", message, self.stderr)
         self.ctx.runs_changed.emit()
+        if self.final_state == "completed" and self.series_remaining > 0:
+            done = len(self.series_runs)
+            self.series_remaining -= 1
+            self.ctx.status_message.emit(f"Run {done} of {done + self.series_remaining + 1} finished; starting the "
+                                         "next seed.")
+            self._start_one(done)
+        else:
+            self.series_remaining = 0
 
     # ----- live updates ------------------------------------------------------------------------------------
     def poll(self) -> None:

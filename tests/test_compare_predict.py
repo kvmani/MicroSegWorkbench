@@ -96,3 +96,26 @@ def test_cli_compare_and_predict(trained, tmp_path, capsys):
     assert main(["--workspace", str(ws.root), "predict", "r1", str(root / "data"), "--out", str(tmp_path / "p"),
                  "--device", "cpu"]) == 0
     assert main(["--workspace", str(ws.root), "compare", "nope"]) == 1
+
+
+def test_seed_variability_summary(trained):
+    from microseg_workbench.training.compare import seed_variability
+
+    _, ws, (r1, r2, r3) = trained
+    assert compare_runs([r1, r2])["seed_summary"] is None  # lr differs too
+    fake = [{"seed": i, "test_miou": v, "test_miou_fg": v, "test_pixel_accuracy": 1.0,
+             "test_class_iou": {"a": v, "b": None}} for i, v in enumerate([0.5, 0.7, 0.9])]
+    s = seed_variability(fake)
+    assert s["test_miou"]["mean"] == pytest.approx(0.7) and s["test_miou"]["sd"] == pytest.approx(0.2)
+    assert s["test_class_iou"]["b"] is None and s["test_class_iou"]["a"]["n"] == 3
+
+
+def test_cli_repeat_seeds(trained, tmp_path, capsys):
+    _, ws, (r1, _, _) = trained
+    cfg = tmp_path / "c.json"
+    cfg.write_text('{"epochs": 1, "base_channels": 4, "patches_per_image": 1, "device": "cpu"}')
+    dataset = r1.info()["dataset"]["dataset_id"]
+    assert main(["--workspace", str(ws.root), "train", dataset, "--config", str(cfg), "--repeat-seeds", "3",
+                 "--quiet"]) == 0
+    out = capsys.readouterr().out
+    assert "Over 3 seeds" in out and "+/-" in out

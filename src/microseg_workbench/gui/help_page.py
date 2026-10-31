@@ -100,6 +100,11 @@ Select it in <b>4 Results</b> and press <i>Resume training</i>; it continues exa
 test image predicted by each run. Only runs on the same dataset version share a test set; otherwise a warning
 appears and their test scores must not be ranked.</p>
 
+<h3>How much does luck matter? (repeat with seeds)</h3>
+<p>Small datasets and rare classes can make results depend on the random seed. Set <i>Repeat with seeds</i> in step 3
+to train several runs that differ only in their seed; tick them in <b>5 Compare</b> to see the mean and spread of
+the test scores. Only differences larger than that spread should be trusted.</p>
+
 <h3>Segmenting new images</h3>
 <p>In <b>4 Results</b>, select a run and press <i>Segment new images...</i>. Choose a folder of micrographs and a new
 output folder; each image gets a mask (<code>_pred_mask.png</code>, original class values), an overlay and an entry in

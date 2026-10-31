@@ -40,6 +40,7 @@ Workspace folder (datasets and runs) defaults to `~/MicroSegWorkbench-workspace`
 | `msw datasets` / `msw runs` | List dataset versions and runs |
 | `msw preview-aug DATASET --out p.png [--augment cfg.json]` | Augmentation preview image |
 | `msw train DATASET [--preset quick_cpu\|standard\|large_gpu] [--config cfg.json]` | Train, then evaluate on the test split |
+| `msw train DATASET --repeat-seeds N` | N runs differing only by seed; prints mean +/- sd of test scores |
 | `msw resume RUN` | Continue a cancelled, failed or interrupted run exactly where it stopped |
 | `msw evaluate RUN` | Re-evaluate a run's best checkpoint |
 | `msw compare RUN RUN... [--csv f]` | Compare runs (warns if test sets differ) |

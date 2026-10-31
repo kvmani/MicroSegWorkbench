@@ -136,6 +136,14 @@ class ComparePage(QWidget):
         c = compare_runs(runs)
         self.comparison = c
         notes = [f"<span style='color:#8a5a00'><b>&#9888;</b> {w}</span>" for w in c["warnings"]]
+        if c.get("seed_summary"):
+            ss = c["seed_summary"]
+            st = ss["test_miou_fg"] or ss["test_miou"]
+            per_class = ", ".join(f"{n} {v['mean']:.3f} &plusmn; {v['sd']:.3f}" for n, v in ss["test_class_iou"].items()
+                                  if v)
+            notes.append(f"<b>These runs differ only by random seed</b> ({len(ss['seeds'])} runs): test mIoU of feature "
+                         f"classes {st['mean']:.3f} &plusmn; {st['sd']:.3f} (min {st['min']:.3f}, max {st['max']:.3f})."
+                         f" Per class: {per_class}. A large spread means single-run differences are not meaningful.")
         notes.append("All scores are <b>unreviewed</b>.")
         self.warnings.setText("<br>".join(notes))
         summaries = c["runs"]

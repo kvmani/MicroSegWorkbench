@@ -8,6 +8,7 @@ pytest.importorskip("torch")
 QtWidgets = pytest.importorskip("PySide6.QtWidgets", exc_type=ImportError)  # also skips if Qt system libs are missing
 
 from microseg_workbench.core.workspace import Workspace  # noqa: E402
+from microseg_workbench.training.runs import RunDir  # noqa: E402
 
 pytestmark = pytest.mark.gui
 
@@ -312,4 +313,31 @@ def test_border_controls_and_class_balance(app, tmp_path):
     aug.border[0].setValue(90)
     aug.preview()
     assert "leaves only" in win.ctx.last_error
+    win.close()
+
+
+def test_repeat_with_seeds_queue_and_compare_summary(app, tmp_path):
+    from microseg_workbench.core.dataset import create_dataset_version, validate_folder
+    from microseg_workbench.core.splits import DEFAULT_GROUP_REGEX, SplitConfig
+    from microseg_workbench.core.synthetic import SyntheticSpec, write_synthetic_dataset
+    from microseg_workbench.gui.app import MainWindow
+
+    write_synthetic_dataset(tmp_path / "data", SyntheticSpec(specimens=3, images_per_specimen=2, size=64))
+    ws = Workspace(tmp_path / "ws").ensure()
+    create_dataset_version(validate_folder(tmp_path / "data", DEFAULT_GROUP_REGEX), SplitConfig(),
+                           ws.datasets_dir, "d")
+    win = MainWindow(ws, interactive=False)
+    train = win.train_page
+    train.device.setCurrentIndex(train.device.findData("cpu"))
+    train.epochs.setValue(1)
+    train.repeats.setValue(3)
+    train.start()
+    wait_until(app, lambda: len(train.series_runs) == 3 and train.final_state == "completed"
+               and not train.is_running(), timeout=300)
+    seeds = [RunDir(ws.runs_dir / r).info()["config"]["seed"] for r in train.series_runs]
+    assert seeds == [1234, 1235, 1236]
+    compare = win.compare_page
+    compare.refresh()
+    compare.set_checked(train.series_runs)
+    assert "differ only by random seed" in compare.warnings.text() and "&plusmn;" in compare.warnings.text()
     win.close()

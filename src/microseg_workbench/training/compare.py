@@ -92,8 +92,33 @@ def compare_runs(runs: list[RunDir]) -> dict[str, Any]:
     keys = sorted({k for s in summaries for k in s["config_flat"]})
     differences = {k: [s["config_flat"].get(k) for s in summaries] for k in keys
                    if len({json.dumps(s["config_flat"].get(k), sort_keys=True) for s in summaries}) > 1}
+    seed_summary = None
+    if len(summaries) >= 2 and len(datasets) <= 1 and set(differences) <= {"seed", "preset"} \
+            and all(s["state"] == "completed" for s in summaries):
+        seed_summary = seed_variability(summaries)
     return {"runs": summaries, "warnings": warnings, "differences": differences, "comparable": len(datasets) <= 1,
-            "review_status": "unreviewed"}
+            "seed_summary": seed_summary, "review_status": "unreviewed"}
+
+
+def _stats(values: list[float | None]) -> dict[str, Any] | None:
+    vals = [v for v in values if v is not None]
+    if not vals:
+        return None
+    mean = sum(vals) / len(vals)
+    sd = (sum((v - mean) ** 2 for v in vals) / (len(vals) - 1)) ** 0.5 if len(vals) > 1 else 0.0
+    return {"mean": mean, "sd": sd, "min": min(vals), "max": max(vals), "n": len(vals)}
+
+
+def seed_variability(summaries: list[dict[str, Any]]) -> dict[str, Any]:
+    """Mean, sample standard deviation, min and max of test scores over runs that differ only by seed."""
+    class_names = sorted({n for s in summaries for n in s["test_class_iou"]})
+    return {
+        "seeds": [s["seed"] for s in summaries],
+        "test_miou": _stats([s["test_miou"] for s in summaries]),
+        "test_miou_fg": _stats([s["test_miou_fg"] for s in summaries]),
+        "test_pixel_accuracy": _stats([s["test_pixel_accuracy"] for s in summaries]),
+        "test_class_iou": {n: _stats([s["test_class_iou"].get(n) for s in summaries]) for n in class_names},
+    }
 
 
 TABLE_COLUMNS = ["run_id", "state", "dataset_id", "preset", "epochs_done", "learning_rate", "batch_size", "loss",

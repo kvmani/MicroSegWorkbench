@@ -195,16 +195,39 @@ def _print_event(event: dict[str, Any]) -> None:
 
 
 def cmd_train(args: argparse.Namespace) -> int:
+    from dataclasses import replace
+
     from .training.trainer import run_training
 
     cfg = _train_config(args)
-    try:
-        run = run_training(cfg, _ws(args), run_id=args.run_id, on_event=None if args.quiet else _print_event)
-    except Exception as exc:
-        print(f"Training failed: {exc}", file=sys.stderr)
+    repeats = max(1, getattr(args, "repeat_seeds", 1) or 1)
+    if repeats > 1 and args.run_id:
+        print("--run-id cannot be combined with --repeat-seeds", file=sys.stderr)
         return 1
-    print(f"Run directory: {run.root}  state: {run.status().get('state')}")
-    return 0 if run.status().get("state") in ("completed", "cancelled") else 1
+    ws = _ws(args)
+    runs = []
+    for k in range(repeats):
+        run_cfg = replace(cfg, seed=cfg.seed + k)
+        if repeats > 1:
+            print(f"--- run {k + 1}/{repeats} (seed {run_cfg.seed}) ---")
+        try:
+            run = run_training(run_cfg, ws, run_id=args.run_id, on_event=None if args.quiet else _print_event)
+        except Exception as exc:
+            print(f"Training failed: {exc}", file=sys.stderr)
+            return 1
+        print(f"Run directory: {run.root}  state: {run.status().get('state')}")
+        if run.status().get("state") != "completed":
+            return 0 if run.status().get("state") == "cancelled" else 1
+        runs.append(run)
+    if len(runs) > 1:
+        from .training.compare import compare_runs
+
+        summary = compare_runs(runs)["seed_summary"]
+        if summary:
+            st = summary["test_miou_fg"] or summary["test_miou"]
+            print(f"Over {len(runs)} seeds: test mIoU(fg) {_fmt(st['mean'])} +/- {_fmt(st['sd'])} "
+                  f"(min {_fmt(st['min'])}, max {_fmt(st['max'])})  [UNREVIEWED]")
+    return 0
 
 
 def cmd_resume(args: argparse.Namespace) -> int:
@@ -267,6 +290,9 @@ def cmd_compare(args: argparse.Namespace) -> int:
         print(f"{s['run_id']}  [{s['dataset_id']}]  test mIoU {_fmt(s['test_miou'])}  "
               f"mIoU(fg) {_fmt(s['test_miou_fg'])}  best val {_fmt(s['best_val_miou_fg'])} @ {s['best_val_epoch']}  "
               f"{s['train_seconds']}s  | {classes}")
+    if comparison.get("seed_summary"):
+        st = comparison["seed_summary"]["test_miou_fg"] or comparison["seed_summary"]["test_miou"]
+        print(f"Runs differ only by seed: test mIoU(fg) {_fmt(st['mean'])} +/- {_fmt(st['sd'])} over {st['n']} runs")
     if comparison["differences"]:
         print("Settings that differ:")
         for k, values in comparison["differences"].items():
@@ -498,6 +524,8 @@ def build_parser() -> argparse.ArgumentParser:
         s.add_argument("--device", choices=("auto", "cpu", "cuda"))
         s.add_argument("--num-threads", type=int)
         s.add_argument("--run-id")
+        s.add_argument("--repeat-seeds", type=int, default=1,
+                       help="train N runs with seeds seed, seed+1, ... and report mean +/- sd")
         s.add_argument("--quiet", action="store_true")
         s.set_defaults(func=func, config=None)
 
