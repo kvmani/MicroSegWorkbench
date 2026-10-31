@@ -8,7 +8,7 @@ SMB share, Ubuntu VM), an independent review (REVIEW.md), and a few deliberately
 
 ## Current objective
 Hand over for office rehearsal and independent review. Implementation agents should next address review findings
-and the highest-value remaining gaps (packaged Windows build, multi-process augmentation, service authentication).
+and the highest-value remaining gaps (multi-process augmentation, CUDA package, service authentication).
 
 ## Decisions
 - New independent repository; reference rather than modify HydrideSegmentation, OnlineAnnotator, ml_server and ml_server_deploy.
@@ -99,7 +99,8 @@ and the highest-value remaining gaps (packaged Windows build, multi-process augm
   installed venv, desktop shortcut present. From run 41245688448 the Windows job also creates a real SMB share
   (`\\localhost\mswshare`) and runs the shared-folder tests through the UNC path; that run **found two SMB-only
   bugs** (concurrent rename losers got "Access is denied"; lock-file deletion hit sharing violations), fixed in
-  1d62ec0 and green in run 41246145574. Still not covered: NVIDIA GPU, the office file server (permissions,
+  1d62ec0 and green in run 41246145574. Run 41247114634 (manual) also built a **PyInstaller Windows package** and the
+  frozen exe trained and evaluated a model via `--cli quickstart`. Still not covered: NVIDIA GPU, the office file server (permissions,
   latency, multiple machines), an interactive desktop session.
 - Seed sweep (4 seeds, synthetic): quick preset test feature mIoU 0.956-0.982.
 - UI screenshots of training resources tab (simulated GPU) and compare page inspected manually.
@@ -108,7 +109,8 @@ and the highest-value remaining gaps (packaged Windows build, multi-process augm
 - **Office verification outstanding**: the test suite and the offline installer pass on a Windows CI runner, but
   there has been no interactive desktop check (DPI, fonts, real clicks) and the `.bat` launcher was not executed; no NVIDIA GPU run; no SMB share; no VM deployment; OnlineAnnotator import
   tested only against a fixture built from its export code, not a real export ZIP.
-- No packaged (frozen) Windows executable is built; only the launch path for one is implemented and tested.
+- Packaged Windows executable: built and smoke-tested in CI (CPU PyTorch, unsigned); GUI of the frozen build not
+  clicked through interactively; no CUDA package built.
 - Independent scientific review (Phase 4 deliverable) not done - must be a separate reviewer.
 - **Not run on Windows**, nor on an NVIDIA GPU: CUDA paths (auto batch probe, mixed precision, NVML/nvidia-smi
   readings, OOM on real hardware) are only exercised with fakes/simulation.
@@ -131,5 +133,5 @@ None for synthetic development. Needs from the office: a Windows workstation run
    publication: AD-9..AD-11).
 2. Office rehearsal following docs/DEPLOYMENT.md: wheelhouse build, Windows install + `python -m pytest -q`, GPU
    `standard` preset, SMB share with two workstations, VM service, a real OnlineAnnotator export; record results here.
-3. Then, by value: multi-process augmentation workers for GPU throughput, packaged Windows build, ml_server
+3. Then, by value: multi-process augmentation workers for GPU throughput, CUDA package build, ml_server
    authentication for the service.

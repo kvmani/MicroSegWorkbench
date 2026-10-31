@@ -1,6 +1,8 @@
 # Changelog
 
 ## Unreleased (0.4.0)
+- Packaged Windows executable: `deploy/windows/launcher.py` + manual CI job that builds it with PyInstaller and
+  checks the frozen exe trains and evaluates a model.
 - Windows SMB: fixed concurrent record creation ("Access is denied" for losers) and lock-file deletion races found
   by new CI tests over a real `\\localhost` SMB share; CI also checks the offline Windows installer.
 - CI: full test suite on Windows and Linux (GitHub Actions); first run green on both.

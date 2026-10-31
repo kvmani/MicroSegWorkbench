@@ -62,10 +62,20 @@ Self-test of the installation (optional, needs `pytest` in the wheelhouse):
   precision. If memory runs out, the run stops with advice and can be resumed with a smaller batch size.
 - GPU utilisation and temperature come from `nvidia-smi` (installed with the driver) or `pynvml` if present.
 
-### Packaged executable (optional, not yet built)
-The app supports being frozen into a single executable (e.g. with PyInstaller): the training child process is then
-started as `<exe> --cli train ...` instead of `python -m microseg_workbench`. Building and signing such a package is
-not part of this repository yet.
+### Packaged executable (no Python needed on the workstation)
+A PyInstaller folder build (`MicroSegWorkbench\MicroSegWorkbench.exe` plus its files) is produced by the manual CI
+job "Windows packaged executable" (Actions -> tests -> Run workflow); download the `MicroSegWorkbench-windows-cpu`
+artifact (kept 7 days). The job checks that the frozen executable trains and evaluates a model through its `--cli`
+mode, which is how the app starts training when frozen. Build locally the same way:
+
+```powershell
+pip install ".[all]" pyinstaller
+pyinstaller --noconfirm --windowed --name MicroSegWorkbench --collect-submodules microseg_workbench deploy\windows\launcher.py
+```
+
+The CI build uses CPU PyTorch; for GPU workstations build on a machine with the CUDA PyTorch wheel installed.
+The package is unsigned; follow the office policy for internally built executables. Command-line use:
+`MicroSegWorkbench.exe --cli <msw command>` (output is not shown in a console because the build is windowed).
 
 ## 3. Prepare the shared network folder (once, administrator)
 
