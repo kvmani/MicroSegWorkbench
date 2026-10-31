@@ -38,6 +38,14 @@ jobs:
           python -m pip install --upgrade pip
           python -m pip install torch --index-url https://download.pytorch.org/whl/cpu
           python -m pip install -e ".[all]"
+      - name: Local SMB share for network-folder tests (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path C:\mswshare | Out-Null
+          New-SmbShare -Name mswshare -Path C:\mswshare -FullAccess Everyone | Out-Null
+          "MSW_TEST_SHARE=\\localhost\mswshare" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          Test-Path \\localhost\mswshare
       - name: Environment
         run: python -m microseg_workbench devices
       - name: Tests
