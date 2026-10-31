@@ -70,6 +70,11 @@ predictions are always mapped back to the original resolution and compared with 
 else: it is never trained on or scored, and predicted masks then cover only the analysed region (its position is
 recorded in <code>predictions.json</code>).</p>
 
+<h3>Extra augmentations</h3>
+<p>Step 2 also offers a random blur. Your developers can add more image-only operations as plugins (see
+<code>examples/plugins/example_ops.py</code>); they then appear as <i>Plugin operation</i> tick boxes. Plugins never
+change masks, and every run records which plugin files it used.</p>
+
 <h3>GPU training</h3>
 <ul>
 <li>The <b>Device</b> list and the line below it show whether an NVIDIA GPU was found and why not, if not.</li>

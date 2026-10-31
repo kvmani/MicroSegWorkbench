@@ -50,3 +50,43 @@ def test_invalid_config_messages():
         AugmentConfig(patch_size=30)
     with pytest.raises(AugmentConfigError, match="Unknown"):
         AugmentConfig.from_dict({"flip": 1})
+
+
+def test_blur_preserves_shape_mean_and_labels():
+    from microseg_workbench.core.augment import gaussian_blur
+
+    image, labels = _pair()
+    blurred = gaussian_blur(image, 1.5)
+    assert blurred.shape == image.shape and abs(float(blurred.mean() - image.mean())) < 0.01
+    assert float(blurred.std()) < float(image.std())
+    assert gaussian_blur(image, 0) is image
+    cfg = AugmentConfig(patch_size=32, hflip=0, vflip=0, rot90=0, photometric_prob=1.0, brightness=0, contrast=0,
+                        blur_max_sigma=2.0)
+    _, lab, ops = augment(image, labels, cfg, np.random.default_rng(1), crop=False)
+    np.testing.assert_array_equal(lab, labels)
+    assert any(o.startswith("blur") for o in ops)
+
+
+def test_registered_photometric_op_is_seeded_and_cannot_touch_labels():
+    from microseg_workbench.core.augment import PHOTOMETRIC_OPS, register_photometric_op
+
+    register_photometric_op("invert_test", lambda img, rng, p: p["scale"] * (1.0 - img) + rng.normal(0, 0.01, img.shape),
+                            {"scale": 1.0}, "test op")
+    try:
+        image, labels = _pair()
+        cfg = AugmentConfig.from_dict({"patch_size": 32, "photometric_prob": 0.0,
+                                       "extra_ops": [{"name": "invert_test", "probability": 1.0}]})
+        a = augment(image, labels, cfg, np.random.default_rng(3))
+        b = augment(image, labels, cfg, np.random.default_rng(3))
+        np.testing.assert_array_equal(a[0], b[0])
+        assert "invert_test" in a[2]
+        assert cfg.to_dict()["extra_ops"] == [{"name": "invert_test", "probability": 1.0}]
+        with pytest.raises(AugmentConfigError, match="Unknown augmentation"):
+            AugmentConfig(extra_ops=({"name": "nope", "probability": 1.0},))
+        register_photometric_op("crop_test", lambda img, rng, p: img[1:], {}, "")
+        bad = AugmentConfig(patch_size=32, extra_ops=({"name": "crop_test", "probability": 1.0},))
+        with pytest.raises(AugmentConfigError, match="changed the image shape"):
+            augment(image, labels, bad, np.random.default_rng(0))
+    finally:
+        PHOTOMETRIC_OPS.pop("invert_test", None)
+        PHOTOMETRIC_OPS.pop("crop_test", None)

@@ -3,11 +3,11 @@
 from __future__ import annotations
 
 from PySide6.QtWidgets import (
-    QComboBox, QDoubleSpinBox, QFormLayout, QGroupBox, QHBoxLayout, QLabel, QPushButton, QSpinBox, QVBoxLayout,
+    QCheckBox, QComboBox, QDoubleSpinBox, QFormLayout, QGroupBox, QHBoxLayout, QLabel, QPushButton, QSpinBox, QVBoxLayout,
     QWidget,
 )
 
-from ..core.augment import AugmentConfig, AugmentConfigError
+from ..core.augment import PHOTOMETRIC_OPS, AugmentConfig, AugmentConfigError
 from ..core.dataset import DatasetVersion, list_dataset_versions
 from ..core.imageio import load_image, load_mask_values, to_unit_float
 from ..core.preprocess import NORMALIZATIONS, Preprocess, PreprocessError, resize_image, resize_labels
@@ -39,6 +39,7 @@ FIELDS = [
     ("contrast", "Contrast change (max)", float, 0, 0.9, 0.01, "Largest relative contrast change."),
     ("gamma", "Gamma change (max log)", float, 0, 1, 0.05, "Non-linear intensity change; 0 = off."),
     ("noise_std", "Noise level (std)", float, 0, 0.3, 0.005, "Added Gaussian noise; 0 = off."),
+    ("blur_max_sigma", "Blur (max sigma, px)", float, 0, 5, 0.1, "Random Gaussian blur up to this width; 0 = off."),
 ]
 
 
@@ -88,6 +89,20 @@ class AugmentPage(QWidget):
             w.setToolTip(tip)
             form.addRow(label + ":", w)
             self.inputs[name] = w
+        self.extra: dict[str, tuple[QCheckBox, QDoubleSpinBox]] = {}
+        for name, spec in sorted(PHOTOMETRIC_OPS.items()):
+            check = QCheckBox(name)
+            check.setToolTip(f"{spec['description']} (plugin {spec['module']}; image only, masks unchanged)")
+            prob = QDoubleSpinBox()
+            prob.setRange(0, 1)
+            prob.setSingleStep(0.05)
+            prob.setValue(0.5)
+            row = QHBoxLayout()
+            row.addWidget(check)
+            row.addWidget(QLabel("probability"))
+            row.addWidget(prob)
+            form.addRow("Plugin operation:", row)
+            self.extra[name] = (check, prob)
         self.seed = QSpinBox()
         self.seed.setRange(0, 999999)
         self.seed.setToolTip("Different preview seeds show different random variants.")
@@ -153,6 +168,8 @@ class AugmentPage(QWidget):
         defaults = AugmentConfig()
         for name, w in self.inputs.items():
             w.setValue(getattr(defaults, name))
+        for check, _prob in self.extra.values():
+            check.setChecked(False)
 
     def preprocess(self) -> Preprocess:
         return Preprocess(resize_factor=round(self.resize.value(), 4), normalization=self.normalization.currentData(),
@@ -160,7 +177,9 @@ class AugmentPage(QWidget):
 
     def config(self) -> AugmentConfig:
         """Current settings; raises AugmentConfigError with a readable message if invalid."""
-        return AugmentConfig(**{name: w.value() for name, w in self.inputs.items()})
+        extra = tuple({"name": n, "probability": round(prob.value(), 4)}
+                      for n, (check, prob) in self.extra.items() if check.isChecked())
+        return AugmentConfig(**{name: w.value() for name, w in self.inputs.items()}, extra_ops=extra)
 
     def preview(self) -> None:
         version = self._version()

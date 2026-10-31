@@ -15,12 +15,49 @@ Scientific rules enforced here:
 from __future__ import annotations
 
 from dataclasses import asdict, dataclass, fields
-from typing import Any
+from typing import Any, Callable
 
 import numpy as np
 from PIL import Image
 
 IGNORE_INDEX = 255
+
+PhotometricOp = Callable[[np.ndarray, np.random.Generator, dict], np.ndarray]
+PHOTOMETRIC_OPS: dict[str, dict[str, Any]] = {}
+
+
+def register_photometric_op(name: str, fn: PhotometricOp, defaults: dict[str, Any] | None = None,
+                            description: str = "") -> None:
+    """Register an extra image-only augmentation (for plugins).
+
+    ``fn(image, rng, params)`` receives a float32 (H, W, C) image in [0, 1], a seeded generator and the parameters,
+    and must return an image of the same shape. It never sees the labels, so it cannot misalign them; all
+    randomness must come from ``rng`` so runs stay reproducible.
+    """
+    if not name.isidentifier():
+        raise AugmentConfigError(f"Augmentation name {name!r} must be a simple identifier.")
+    PHOTOMETRIC_OPS[name] = {"fn": fn, "defaults": dict(defaults or {}), "description": description,
+                             "module": getattr(fn, "__module__", "?")}
+
+
+def _gaussian_kernel(sigma: float) -> np.ndarray:
+    radius = max(1, int(np.ceil(3 * sigma)))
+    x = np.arange(-radius, radius + 1, dtype=np.float32)
+    k = np.exp(-0.5 * (x / sigma) ** 2)
+    return k / k.sum()
+
+
+def gaussian_blur(image: np.ndarray, sigma: float) -> np.ndarray:
+    """Separable Gaussian blur with edge replication (float32 (H, W, C))."""
+    if sigma <= 0:
+        return image
+    k = _gaussian_kernel(sigma)
+    r = len(k) // 2
+    out = np.pad(image, ((r, r), (0, 0), (0, 0)), mode="edge")
+    out = sum(k[i] * out[i:i + image.shape[0]] for i in range(len(k)))
+    out = np.pad(out, ((0, 0), (r, r), (0, 0)), mode="edge")
+    out = sum(k[i] * out[:, i:i + image.shape[1]] for i in range(len(k)))
+    return out.astype(np.float32)
 
 
 class AugmentConfigError(ValueError):
@@ -40,13 +77,23 @@ class AugmentConfig:
     contrast: float = 0.15
     gamma: float = 0.0
     noise_std: float = 0.0
+    blur_max_sigma: float = 0.0
+    extra_ops: tuple = ()  # ({"name": registered op, "probability": p, "params": {...}}, ...)
 
     def __post_init__(self) -> None:
         for name in ("hflip", "vflip", "rot90", "rotate_prob", "photometric_prob"):
             value = getattr(self, name)
             if not 0.0 <= value <= 1.0:
                 raise AugmentConfigError(f"{name} is a probability and must be between 0 and 1 (got {value}).")
-        for name in ("rotate_max_deg", "brightness", "contrast", "gamma", "noise_std"):
+        ops = tuple(dict(o) for o in self.extra_ops)
+        object.__setattr__(self, "extra_ops", ops)
+        for op in ops:
+            if op.get("name") not in PHOTOMETRIC_OPS:
+                raise AugmentConfigError(f"Unknown augmentation {op.get('name')!r}; is its plugin loaded? "
+                                         f"Available: {sorted(PHOTOMETRIC_OPS)}")
+            if not 0.0 <= float(op.get("probability", 0)) <= 1.0:
+                raise AugmentConfigError(f"Probability of {op['name']} must be between 0 and 1.")
+        for name in ("rotate_max_deg", "brightness", "contrast", "gamma", "noise_std", "blur_max_sigma"):
             if getattr(self, name) < 0:
                 raise AugmentConfigError(f"{name} must not be negative.")
         if self.patch_size < 16 or self.patch_size % 8:
@@ -55,7 +102,9 @@ class AugmentConfig:
             raise AugmentConfigError("contrast must be below 1 (it is a relative change).")
 
     def to_dict(self) -> dict[str, Any]:
-        return asdict(self)
+        out = asdict(self)
+        out["extra_ops"] = [dict(o) for o in self.extra_ops]
+        return out
 
     @classmethod
     def from_dict(cls, payload: dict[str, Any]) -> "AugmentConfig":
@@ -63,7 +112,9 @@ class AugmentConfig:
         unknown = set(payload) - known
         if unknown:
             raise AugmentConfigError(f"Unknown augmentation options: {sorted(unknown)}")
-        return cls(**payload)
+        data = dict(payload)
+        data["extra_ops"] = tuple(data.get("extra_ops") or ())
+        return cls(**data)
 
 
 NO_AUGMENT = dict(hflip=0.0, vflip=0.0, rot90=0.0, rotate_prob=0.0, photometric_prob=0.0)
@@ -142,5 +193,19 @@ def augment(image: np.ndarray, labels: np.ndarray, cfg: AugmentConfig, rng: np.r
         if cfg.noise_std:
             image = image + np.random.default_rng(noise_seed).normal(0, cfg.noise_std, image.shape)
             ops.append(f"noise sd {cfg.noise_std:.3f}")
+        if cfg.blur_max_sigma:
+            sigma = float(np.random.default_rng([noise_seed, 1]).uniform(0, cfg.blur_max_sigma))
+            image = gaussian_blur(image, sigma)
+            ops.append(f"blur sigma {sigma:.2f}")
         image = np.clip(image, 0.0, 1.0)
+    for k, op in enumerate(cfg.extra_ops):  # extra draws only when extra ops are configured
+        op_rng = np.random.default_rng([noise_seed, 100 + k])
+        if op_rng.random() < float(op.get("probability", 0)):
+            spec = PHOTOMETRIC_OPS[op["name"]]
+            params = {**spec["defaults"], **(op.get("params") or {})}
+            out = spec["fn"](image, op_rng, params)
+            if out.shape != image.shape:
+                raise AugmentConfigError(f"Augmentation {op['name']} changed the image shape.")
+            image = np.clip(np.asarray(out, dtype=np.float32), 0.0, 1.0)
+            ops.append(op["name"])
     return np.ascontiguousarray(image, dtype=np.float32), np.ascontiguousarray(labels), ops

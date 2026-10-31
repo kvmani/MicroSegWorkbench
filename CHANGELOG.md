@@ -1,6 +1,8 @@
 # Changelog
 
 ## Unreleased (0.4.0)
+- Augmentation: random Gaussian blur; plugin extension point for image-only operations (`MSW_PLUGINS`), recorded
+  with file hashes in each run; example plugin with unsharp mask and vignette.
 - Display-only previews and overlays are capped (768 px per-epoch previews, 1024 px evaluation/prediction panels) so
   large micrographs do not fill the disk; prediction masks stay full resolution.
 - Windows: training child process started without a console window (untested on Windows).

@@ -179,3 +179,26 @@ def test_early_stopping_stops_and_still_evaluates(ws_version, monkeypatch):
     assert [e["epoch"] for e in run.epoch_history()] == [1, 2, 3]
     assert run.status()["stopped_early"] == 3 and "Stopped early" in run.status()["message"]
     assert json.loads((run.evaluation / "evaluation.json").read_text())["checkpoint_epoch"] == 1
+
+
+def test_plugin_file_loaded_and_recorded_in_run(ws_version, tmp_path, monkeypatch):
+    from microseg_workbench import plugins
+    from microseg_workbench.core.augment import PHOTOMETRIC_OPS, AugmentConfig
+
+    plugin = tmp_path / "my_ops.py"
+    plugin.write_text("from microseg_workbench.core.augment import register_photometric_op\n"
+                      "register_photometric_op('darken', lambda img, rng, p: img * p['factor'], {'factor': 0.9},"
+                      " 'darken image')\n")
+    monkeypatch.setenv(plugins.ENV, str(plugin))
+    monkeypatch.setattr(plugins, "_loaded", {})
+    try:
+        loaded = plugins.load_plugins()
+        assert loaded[str(plugin)]["sha256"] and "darken" in PHOTOMETRIC_OPS
+        ws, version = ws_version
+        aug = AugmentConfig(extra_ops=({"name": "darken", "probability": 0.5},))
+        run = run_training(tiny(version.dataset_id, epochs=1, augment=aug), ws)
+        info = run.info()
+        assert info["plugins"]["augmentation_ops"] == {"darken": "msw_plugin_my_ops"}
+        assert info["plugins"]["loaded_plugins"][str(plugin)]["sha256"] == loaded[str(plugin)]["sha256"]
+    finally:
+        PHOTOMETRIC_OPS.pop("darken", None)

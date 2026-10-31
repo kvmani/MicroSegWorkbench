@@ -61,6 +61,15 @@ class ResumeError(ValueError):
     pass
 
 
+def _plugins_used(cfg: TrainConfig) -> dict[str, Any]:
+    from ..core.augment import PHOTOMETRIC_OPS
+    from ..plugins import load_plugins
+
+    loaded = load_plugins()
+    used = {op["name"]: PHOTOMETRIC_OPS[op["name"]]["module"] for op in cfg.augment.extra_ops}
+    return {"augmentation_ops": used, "loaded_plugins": loaded}
+
+
 def lr_schedule(total_steps: int) -> Callable[[int], float]:
     """Learning-rate factor per step: linear warm-up over 10 % of steps, then cosine decay to 5 %.
 
@@ -291,6 +300,7 @@ def _execute(run: RunDir, cfg: TrainConfig, workspace: Workspace, on_event: Even
                                 "torch_threads": torch.get_num_threads(), "deterministic_algorithms": True},
                 "fixed_samples": {"source_split": fixed_source, "stems": [s.stem for s in fixed],
                                   "preview_max_side_px": PREVIEW_MAX_SIDE},
+                "plugins": _plugins_used(cfg),
                 "loss": f"{cfg.loss} (ignore label 255 excluded); validation loss reported as cross-entropy",
                 "model_selection": "best validation mean IoU over foreground classes (falls back to training loss)",
             }

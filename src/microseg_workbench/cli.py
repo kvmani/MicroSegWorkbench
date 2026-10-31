@@ -589,6 +589,9 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def main(argv: list[str] | None = None) -> int:
+    from .plugins import load_plugins
+
+    load_plugins()
     args = build_parser().parse_args(argv)
     return int(args.func(args))
 

@@ -341,3 +341,22 @@ def test_repeat_with_seeds_queue_and_compare_summary(app, tmp_path):
     compare.set_checked(train.series_runs)
     assert "differ only by random seed" in compare.warnings.text() and "&plusmn;" in compare.warnings.text()
     win.close()
+
+
+def test_plugin_operation_appears_in_augmentation_page(app, tmp_path):
+    from microseg_workbench.core.augment import PHOTOMETRIC_OPS, register_photometric_op
+    from microseg_workbench.gui.app import MainWindow
+
+    register_photometric_op("sharpen_test", lambda img, rng, p: img, {}, "test")
+    try:
+        win = MainWindow(Workspace(tmp_path / "ws"), interactive=False)
+        aug = win.augment_page
+        check, prob = aug.extra["sharpen_test"]
+        check.setChecked(True)
+        prob.setValue(0.3)
+        aug.inputs["blur_max_sigma"].setValue(1.0)
+        cfg = aug.config()
+        assert cfg.extra_ops == ({"name": "sharpen_test", "probability": 0.3},) and cfg.blur_max_sigma == 1.0
+        win.close()
+    finally:
+        PHOTOMETRIC_OPS.pop("sharpen_test", None)

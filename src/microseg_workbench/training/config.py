@@ -68,6 +68,7 @@ class TrainConfig:
     def to_dict(self) -> dict[str, Any]:
         out = asdict(self)
         out["augment"] = self.augment.to_dict()
+        out["exclude_border"] = list(self.exclude_border)
         return out
 
     @classmethod

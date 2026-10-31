@@ -170,3 +170,13 @@ evaluation and prediction. Excluded pixels are never trained on or scored. Evalu
 analysed region only, with `analysed_region` recorded, because filling the border with background would bias
 downstream area fractions. `early_stopping_patience` stops after N epochs without validation improvement (needs a
 validation split); the best checkpoint is evaluated as usual and `status.json` records `stopped_early`.
+
+### AD-17 Custom augmentation operations (extension point)
+Developers add image-only operations with `register_photometric_op(name, fn, defaults, description)` in a plugin
+module listed in `MSW_PLUGINS` (module names or `.py` paths; loaded by the CLI, the UI and the training child).
+Operations never receive the mask (no misalignment possible), must draw randomness from the provided generator,
+must keep the image shape (checked), and are listed in `AugmentConfig.extra_ops` with a probability. Runs record the
+operations used and every loaded plugin's file SHA-256. Extra random draws happen only when extra operations are
+configured, so existing configurations reproduce exactly. Geometric (mask-moving) plugin operations are deliberately
+not supported yet: they would need the alignment property tests the built-in transforms have.
+Example: `examples/plugins/example_ops.py`.

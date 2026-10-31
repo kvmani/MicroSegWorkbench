@@ -106,6 +106,9 @@ def main(argv: list[str] | None = None) -> int:
         from ..cli import main as cli_main
 
         return cli_main(argv[1:])
+    from ..plugins import load_plugins
+
+    load_plugins()
     parser = argparse.ArgumentParser(prog="msw-gui")
     parser.add_argument("--workspace")
     args = parser.parse_args(argv)
