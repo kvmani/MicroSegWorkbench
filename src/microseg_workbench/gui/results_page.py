@@ -168,7 +168,7 @@ class ResultsPage(QWidget):
             self.stats_class.setCurrentIndex(idx)
         evaluation_path = run.evaluation / "evaluation.json"
         report = json.loads(evaluation_path.read_text()) if evaluation_path.exists() else None
-        self.banner.setText(UNREVIEWED if report else "")
+        self.banner.setText(self._review_banner(run) if report else "")
         lines = [
             f"<b>State:</b> {run.state()} - {status.get('message', '')}"
             + (" <i>This run can be resumed.</i>" if run.resumable() else ""),
@@ -202,6 +202,30 @@ class ResultsPage(QWidget):
             for col, v in enumerate([str(e["epoch"]), _f(e["train_loss"]), _f(e["val_loss"]),
                                      _f(e["val_mean_iou_foreground"])]):
                 self.history.setItem(r, col, QTableWidgetItem(v))
+
+    def _review_banner(self, run: RunDir) -> str:
+        """Review status from the shared folder when connected; otherwise (or if unpublished) UNREVIEWED."""
+        from ..collab.settings import CollabSettings
+        from ..collab.share import SharedStore, ShareError
+
+        settings = CollabSettings.load(self.ctx.workspace)
+        if not settings.share_path:
+            return UNREVIEWED
+        try:
+            store = SharedStore.open(Path(settings.share_path))
+            store.run_record(run.run_id)
+            reviews = store.reviews(run.run_id)
+        except (ShareError, OSError):
+            return UNREVIEWED + " <span style='color:#6b6b6b'>(not published on the shared folder)</span>"
+        if not reviews:
+            return UNREVIEWED + " <span style='color:#6b6b6b'>(published; awaiting review)</span>"
+        last = reviews[-1]
+        who = f"{last['reviewer']} on {last['reviewed_at'][:10]}"
+        if last["decision"] == "approved":
+            return (f"<span style='color:#1a7f37'><b>&#10003; APPROVED</b> by {who}</span> - "
+                    f"{last.get('comment', '')}")
+        label = "CHANGES REQUESTED" if last["decision"] == "needs_changes" else "REJECTED"
+        return f"<span style='color:#b42318'><b>&#10007; {label}</b> by {who}</span> - {last.get('comment', '')}"
 
     def _show_overlay(self) -> None:
         run = self.selected_run()

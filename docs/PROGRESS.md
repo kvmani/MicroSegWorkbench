@@ -54,9 +54,9 @@ and the highest-value gaps (streaming data loader for large datasets, packaged W
 
 ## Verification
 - 2026-10-31, Linux sandbox, Python 3.13.18, torch 2.15.0 (CUDA build, no GPU present), numpy 2.5.3, Pillow 12.3,
-  PySide6 6.12 offscreen: `python -m pytest -q` -> **102 passed, 2 skipped** in ~1.5 min (the 2 skips need HydrideSegmentation);
+  PySide6 6.12 offscreen: `python -m pytest -q` -> **103 passed, 2 skipped** in ~1.5 min (the 2 skips need HydrideSegmentation);
   with `MSW_HYDRIDESEG_PATH=<HydrideSegmentation checkout @ main, v2.0.0>` and scipy 1.18.1 / scikit-image 0.26.0 /
-  matplotlib 3.11.2 installed -> **104 passed**.
+  matplotlib 3.11.2 installed -> **105 passed**.
   - Data loading: patch order covers every patch once, blocks are local, cached/uncached sources give identical
     batches, prefetch keeps order/propagates errors/stops cleanly, blocked training deterministic, memory guard.
   - Phase 1 coverage as before (numerical metrics, data integrity, leakage, augmentation alignment, training,
@@ -96,10 +96,9 @@ and the highest-value gaps (streaming data loader for large datasets, packaged W
 - Data loading (AD-15): bounded-memory block mode and one background prefetch thread; no multi-process workers,
   so CPU augmentation may still limit a fast GPU on large patches.
 - Share tested only on a local file system; SMB behaviour (no hard links -> check-then-rename fallback, latency,
-  permissions, Windows paths) is untested. No garbage collection of unreferenced blobs.
+  permissions, Windows paths) is untested. Unreferenced-blob GC is manual (`msw share gc --unreferenced --apply`).
 - Identity on the share is self-declared (user name); only the optional service authenticates (tokens; no
   ml_server/LDAP integration yet). Service has no TLS (intended for the intranet VM behind existing services).
-- Local runs show "unreviewed" in the Results page even when approved on the share (approval shown on Share page).
 - Packaged (frozen) Windows build would need a different training launcher (UI uses `sys.executable -m`).
 - CPU/RAM figures need `psutil`; without it they are reported as not measured.
 - Mixed precision on CPU is not offered (bfloat16 CPU autocast not evaluated).

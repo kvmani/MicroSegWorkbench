@@ -383,6 +383,11 @@ def cmd_share(args: argparse.Namespace) -> int:
         elif action == "gc":
             removed = store.blobs.remove_stale_partials(args.days * 86400)
             print(f"Removed {len(removed)} stale partial upload(s).")
+            if args.unreferenced:
+                found = store.remove_unreferenced_blobs(args.days * 86400, apply=args.apply)
+                size = sum(n for _, n in found)
+                verb = "Deleted" if args.apply else "Would delete (run again with --apply)"
+                print(f"{verb}: {len(found)} unreferenced file(s), {size:,} bytes, older than {args.days} days.")
         _register_with_service(settings, store, action, args)
     except ShareError as exc:
         print(f"Error: {exc}", file=sys.stderr)
@@ -542,8 +547,10 @@ def build_parser() -> argparse.ArgumentParser:
     x.add_argument("--decision", required=True, choices=("approved", "rejected", "needs_changes"))
     x.add_argument("--comment")
     ss.add_parser("check", help="verify every published file")
-    x = ss.add_parser("gc", help="remove stale partial uploads")
+    x = ss.add_parser("gc", help="remove stale partial uploads (and optionally unreferenced files)")
     x.add_argument("--days", type=float, default=7)
+    x.add_argument("--unreferenced", action="store_true", help="also list files no published record uses")
+    x.add_argument("--apply", action="store_true", help="actually delete the unreferenced files listed")
     ss.add_parser("sync", help="re-send all shared records to the metadata service")
     s.set_defaults(func=cmd_share)
 

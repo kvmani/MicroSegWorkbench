@@ -225,6 +225,9 @@ def test_share_page_two_colleagues(app, tmp_path):
     bob.approved_only.setChecked(True)
     assert bob.runs.rowCount() == 1
     assert "approved" in bob.history.text()
+    bob_results = bob_win.results_page
+    bob_results.refresh()
+    assert "APPROVED" in bob_results.banner.text() and "bob" in bob_results.banner.text()
 
 
 def test_import_onlineannotator_export_in_data_page(app, tmp_path):

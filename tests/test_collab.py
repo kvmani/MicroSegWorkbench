@@ -200,3 +200,27 @@ def test_run_publication_rules_pull_and_reviews(two_workspaces):
     assert share.review_status("alice-run") == "approved"
     assert [r["run_id"] for r in share.approved_runs()] == ["alice-run"]
     assert [r["reviewer"] for r in share.reviews("alice-run")] == ["bob", "carol"]
+
+
+def test_gc_unreferenced_blobs_dry_run_by_default(two_workspaces, tmp_path, capsys):
+    import time
+
+    from microseg_workbench.cli import main
+
+    share, alice, bob, version = two_workspaces
+    rec = share.publish_dataset(version, user="alice")
+    orphan_old, orphan_new = tmp_path / "o1.bin", tmp_path / "o2.bin"
+    orphan_old.write_bytes(b"left over from an interrupted publication")
+    orphan_new.write_bytes(b"maybe still being published")
+    d_old, d_new = share.blobs.put_file(orphan_old), share.blobs.put_file(orphan_new)
+    past = time.time() - 30 * 86400
+    os.utime(share.blobs.path(d_old), (past, past))
+    for digest in list(rec["files"].values())[:3]:
+        os.utime(share.blobs.path(digest), (past, past))  # old but referenced
+    assert [d for d, _ in share.unreferenced_blobs(7 * 86400)] == [d_old]
+    ws = ["--workspace", str(tmp_path / "ws")]
+    assert main([*ws, "share", "--share", str(share.root), "gc", "--unreferenced"]) == 0
+    assert "Would delete" in capsys.readouterr().out and share.blobs.has(d_old)
+    assert main([*ws, "share", "--share", str(share.root), "gc", "--unreferenced", "--apply"]) == 0
+    assert not share.blobs.has(d_old) and share.blobs.has(d_new)
+    assert share.check() == []

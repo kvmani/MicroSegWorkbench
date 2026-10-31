@@ -17,3 +17,9 @@ def synthetic_folder(tmp_path: Path) -> Path:
     folder = tmp_path / "synthetic"
     write_synthetic_dataset(folder, SyntheticSpec(specimens=5, images_per_specimen=3, size=64, seed=3))
     return folder
+
+
+@pytest.fixture(autouse=True)
+def isolated_default_workspace(tmp_path, monkeypatch):
+    """No test may touch the real default workspace in the home folder."""
+    monkeypatch.setenv("MSW_WORKSPACE", str(tmp_path / "default-workspace"))

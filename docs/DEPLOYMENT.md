@@ -83,6 +83,9 @@ the share.
 Maintenance:
 - `msw share check` re-hashes every published file (slow on large shares; run monthly or after storage incidents).
 - `msw share gc --days 7` removes partial uploads left by interrupted transfers.
+- `msw share gc --days 7 --unreferenced` lists files that no published record uses (left by publications that were
+  interrupted after uploading); add `--apply` to delete them. Files younger than `--days` are never touched,
+  because they may belong to a publication still in progress.
 - Back up the share folder with the normal file-server backup; everything in it is immutable.
 
 ## 4. Optional metadata service on the Ubuntu VM

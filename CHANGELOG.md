@@ -1,6 +1,9 @@
 # Changelog
 
 ## Unreleased (0.4.0)
+- Results page shows the shared review decision (approved / changes requested / rejected) when connected.
+- `msw share gc --unreferenced [--apply]`: list or delete unreferenced shared files older than a grace period.
+- Tests can no longer touch the real default workspace.
 - Large datasets: on-demand loading with an explicit `images_in_memory` block mode, up-front memory check with
   advice, streaming validation/test evaluation, background batch prefetching (results unchanged by default).
 - Phase 4 integration and deployment:

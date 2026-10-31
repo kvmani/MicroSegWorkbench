@@ -266,6 +266,34 @@ class SharedStore:
                         problems.append(f"{kind} {r.get('dataset_id') or r.get('run_id')}: {rel} missing or corrupt")
         return problems
 
+    def unreferenced_blobs(self, min_age_s: float) -> list[tuple[str, int]]:
+        """Blobs no record references and older than ``min_age_s`` (younger ones may belong to a publication
+        that is still uploading)."""
+        import time
+
+        referenced = {d for r in self.list_datasets() + self.list_runs() for d in r["files"].values()}
+        root = self.root / "blobs" / "sha256"
+        now = time.time()
+        out = []
+        if root.exists():
+            for path in root.glob("*/*/*"):
+                if path.is_file() and path.name not in referenced and now - path.stat().st_mtime > min_age_s:
+                    out.append((path.name, path.stat().st_size))
+        return sorted(out)
+
+    def remove_unreferenced_blobs(self, min_age_s: float, apply: bool = False) -> list[tuple[str, int]]:
+        """List (and with ``apply`` delete) unreferenced blobs. Records are re-read just before deleting."""
+        candidates = self.unreferenced_blobs(min_age_s)
+        if apply and candidates:
+            still = {d for d, _ in self.unreferenced_blobs(min_age_s)}
+            for digest, _ in candidates:
+                if digest in still:
+                    try:
+                        self.blobs.path(digest).unlink()
+                    except FileNotFoundError:
+                        pass
+        return candidates
+
     # ---- helpers -------------------------------------------------------------------------------------------
     def _create_record(self, path: Path, record: dict[str, Any], identity_keys: tuple[str, ...]) -> dict[str, Any]:
         if create_exclusive_json(path, record):
