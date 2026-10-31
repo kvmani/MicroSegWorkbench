@@ -1,7 +1,8 @@
 # Deployment and operations runbook
 
-Status: written from the design and from tests in a Linux sandbox. **None of these steps has yet been carried
-out in the office** (Windows workstation, NVIDIA GPU, SMB share, Ubuntu VM). Treat the first office run as a
+Status: the wheelhouse build (section 1, CPU PyTorch) and the Windows installer (section 2) run in CI on a Windows
+runner on every push (`.github/workflows/tests.yml`, job "Windows offline installer"). **Nothing has yet been
+carried out in the office** (NVIDIA GPU, SMB share, Ubuntu VM, interactive desktop). Treat the first office run as a
 rehearsal and record findings in `docs/PROGRESS.md`.
 
 The office setup has three parts:

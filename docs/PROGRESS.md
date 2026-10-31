@@ -94,14 +94,15 @@ and the highest-value remaining gaps (packaged Windows build, multi-process augm
 - **CI on GitHub Actions (2026-10-31, run 41244484430, commit ecd3a59): Windows (windows-latest, Python 3.12.10, CPU
   PyTorch, Qt offscreen) 115 passed, 2 skipped; Linux (ubuntu-latest) passed.** This covers the Windows file-system
   semantics (exclusive create via os.rename, directory publication), QProcess training launch, multi-process blob
-  writes and the metadata service on Windows. Still not covered: NVIDIA GPU, SMB share, real desktop session, the
-  PowerShell installer.
+  writes and the metadata service on Windows. Run 41245163997 (commit fd01a8e) also passed the **Windows offline
+  installer job**: wheelhouse built as in docs/DEPLOYMENT.md, `install.ps1` with `pip --no-index`, quickstart from the
+  installed venv, desktop shortcut present. Still not covered: NVIDIA GPU, SMB share, an interactive desktop session.
 - Seed sweep (4 seeds, synthetic): quick preset test feature mIoU 0.956-0.982.
 - UI screenshots of training resources tab (simulated GPU) and compare page inspected manually.
 
 ## Known gaps (honest coverage)
-- **Office verification outstanding**: the test suite passes on a Windows CI runner, but the Windows install script
-  (`deploy/windows/install.ps1`) and launcher were never executed, and there is no interactive desktop check; no NVIDIA GPU run; no SMB share; no VM deployment; OnlineAnnotator import
+- **Office verification outstanding**: the test suite and the offline installer pass on a Windows CI runner, but
+  there has been no interactive desktop check (DPI, fonts, real clicks) and the `.bat` launcher was not executed; no NVIDIA GPU run; no SMB share; no VM deployment; OnlineAnnotator import
   tested only against a fixture built from its export code, not a real export ZIP.
 - No packaged (frozen) Windows executable is built; only the launch path for one is implemented and tested.
 - Independent scientific review (Phase 4 deliverable) not done - must be a separate reviewer.
