@@ -173,3 +173,55 @@ def test_preprocess_controls_flow_into_training_config(app, tmp_path):
     cfg = win.train_page.build_config()
     assert cfg.resize_factor == 0.5 and cfg.normalization == "per_image_standardize"
     win.close()
+
+
+def test_share_page_two_colleagues(app, tmp_path):
+    from microseg_workbench.collab.share import SharedStore
+    from microseg_workbench.core.dataset import create_dataset_version, validate_folder
+    from microseg_workbench.core.splits import DEFAULT_GROUP_REGEX, SplitConfig
+    from microseg_workbench.core.synthetic import SyntheticSpec, write_synthetic_dataset
+    from microseg_workbench.gui.app import MainWindow
+    from microseg_workbench.training.config import TrainConfig
+    from microseg_workbench.training.trainer import run_training
+
+    SharedStore.create(tmp_path / "share")
+    write_synthetic_dataset(tmp_path / "data", SyntheticSpec(specimens=3, images_per_specimen=2, size=64))
+    wa, wb = Workspace(tmp_path / "alice").ensure(), Workspace(tmp_path / "bob").ensure()
+    version = create_dataset_version(validate_folder(tmp_path / "data", DEFAULT_GROUP_REGEX), SplitConfig(),
+                                     wa.datasets_dir, "d")
+    run_training(TrainConfig(dataset_id=version.dataset_id, epochs=1, base_channels=4, depth=2, patches_per_image=1,
+                             device="cpu"), wa, run_id="alice-run")
+
+    alice = MainWindow(wa, interactive=False).share_page
+    alice.path.setText(str(tmp_path / "share"))
+    alice.user.setText("alice")
+    alice.save_settings()
+    assert "Connected" in alice.conn.text()
+    alice.publish_dataset()
+    wait_until(app, lambda: not alice.busy)
+    alice.publish_run()
+    wait_until(app, lambda: not alice.busy)
+    assert alice.runs.rowCount() == 1 and alice.runs.item(0, 1).text() == "UNREVIEWED"
+    alice.runs.selectRow(0)
+    alice.decision.setCurrentIndex(alice.decision.findData("approved"))
+    alice.submit_review()
+    assert "someone other" in alice.ctx.last_error
+
+    bob_win = MainWindow(wb, interactive=False)
+    bob = bob_win.share_page
+    bob.path.setText(str(tmp_path / "share"))
+    bob.user.setText("bob")
+    bob.save_settings()
+    bob.runs.selectRow(0)
+    bob.download_run()
+    wait_until(app, lambda: not bob.busy)
+    assert (wb.runs_dir / "alice-run").exists() and (wb.datasets_dir / version.dataset_id).exists()
+    assert bob_win.results_page.runs.count() == 1  # results page refreshed via signal
+    bob.runs.selectRow(0)
+    bob.decision.setCurrentIndex(bob.decision.findData("approved"))
+    bob.comment.setPlainText("Checked overlays")
+    bob.submit_review()
+    assert bob.runs.item(0, 1).text() == "APPROVED"
+    bob.approved_only.setChecked(True)
+    assert bob.runs.rowCount() == 1
+    assert "approved" in bob.history.text()

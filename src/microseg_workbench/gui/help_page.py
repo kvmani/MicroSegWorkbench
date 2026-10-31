@@ -85,13 +85,30 @@ output folder; each image gets a mask (<code>_pred_mask.png</code>, original cla
 <code>predictions.json</code> with the model's identity. Predictions are unreviewed.</p>
 
 <h3>Results and approval</h3>
-<p>The best checkpoint (highest validation feature IoU) is evaluated on the test split. All results are marked
-<b>unreviewed</b>; a human approval workflow will be added before models can be published for use.</p>
+<p>The best checkpoint (highest validation feature IoU) is evaluated on the test split. Results stay
+<b>unreviewed</b> until a colleague reviews the published run in <b>6 Share</b>.</p>
+
+<h3>Working with colleagues (6 Share)</h3>
+<ul>
+<li>Enter the shared office folder once (an administrator initialises a new one with <i>Initialise new shared
+folder</i>). Your name is recorded with everything you publish or review.</li>
+<li><b>Publish</b> a dataset version before publishing runs trained on it, so anyone can reproduce them. Only
+finished runs can be published; the best checkpoint, settings, logs, sample predictions and test results go
+with it.</li>
+<li>Published items never change. Files are stored once even if published twice, every copy is checked against
+its fingerprint (SHA-256), and an interrupted download continues where it stopped.</li>
+<li><b>Download</b> a colleague's dataset to train on it locally, or a run to compare it or segment images with it.</li>
+<li><b>Review</b>: choose approved, needs changes or rejected, and say what you checked. You cannot approve your
+own model. The latest review decides the status; <i>Approved models only</i> lists deployment candidates.</li>
+<li>If an optional metadata service is configured (address and personal token from the administrator), it is
+updated automatically and confirms who submitted each record.</li>
+</ul>
 
 <h3>Where files are stored</h3>
 <p>Everything lives in the workspace folder shown at the top of the window: <code>datasets/</code> holds dataset
-versions and <code>runs/</code> holds one folder per training run (settings, live log, checkpoints, sample
-predictions and evaluation).</p>
+versions, <code>runs/</code> holds one folder per training run (settings, live log, checkpoints, sample
+predictions and evaluation) and <code>cache/</code> holds downloaded files from the shared folder. Keep the workspace
+on a local disk; only the shared folder lives on the network drive.</p>
 """
 
 

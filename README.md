@@ -2,10 +2,11 @@
 
 Collaborative, reproducible machine-learning workbench for scientific microstructure segmentation.
 
-**Status:** Phases 1-2 implemented and tested on synthetic data on Linux/CPU:
+**Status:** Phases 1-3 implemented and tested on synthetic data on Linux/CPU:
 data checking -> immutable dataset version with leakage-safe split -> preprocessing and augmentation preview ->
-real model training with live progress, resource monitoring, resume and GPU safety -> unreviewed test-set
-evaluation, run comparison and segmentation of new images, in a desktop UI and a CLI.
+real model training with live progress, resource monitoring, resume and GPU safety -> test-set evaluation, run
+comparison and segmentation of new images -> publication to a shared folder, download by colleagues, independent
+review/approval, and an optional metadata service. Desktop UI and CLI.
 Not yet verified on Windows or on a real GPU. See [PROGRESS](docs/PROGRESS.md) for evidence and known gaps.
 
 Start with [the specification](docs/SPECIFICATION.md). Coding agents follow [AGENTS.md](AGENTS.md); independent reviewers follow [REVIEW.md](REVIEW.md).
@@ -43,6 +44,21 @@ Workspace folder (datasets and runs) defaults to `~/MicroSegWorkbench-workspace`
 | `msw compare RUN RUN... [--csv f]` | Compare runs (warns if test sets differ) |
 | `msw predict RUN FOLDER --out NEW` | Segment new images (masks, overlays, predictions.json) |
 | `msw devices` | CPU/GPU, CUDA diagnosis, live GPU readings |
+
+### Collaboration (shared office folder)
+| Command | Purpose |
+|---|---|
+| `msw share init PATH` | Prepare an empty shared folder (administrator, once) |
+| `msw share config --path PATH [--user NAME] [--service URL --token T]` | Connect this workspace |
+| `msw share status` | Shared datasets and runs with review status |
+| `msw share publish-dataset ID` / `publish-run RUN` | Publish (verified, immutable, deduplicated) |
+| `msw share pull-dataset ID` / `pull-run RUN` | Download (resumable, verified) |
+| `msw share review RUN --decision approved\|needs_changes\|rejected --comment "..."` | Record a review |
+| `msw share check` / `gc` / `sync` | Verify all files / remove stale partial uploads / re-index the service |
+
+Optional metadata service on the Ubuntu VM (standard library only, SQLite on the VM's local disk):
+`msw-service add-user alice --db /var/lib/msw/meta.sqlite` (prints a token), then
+`msw-service serve --db /var/lib/msw/meta.sqlite --host 0.0.0.0 --port 8765`.
 
 ### Input folder format
 `<stem>.png|tif|jpg|bmp` micrographs, `<stem>_mask.png` masks (same size, lossless) and a `classes.json`

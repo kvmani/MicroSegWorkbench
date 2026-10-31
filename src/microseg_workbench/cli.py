@@ -347,15 +347,9 @@ def _register_with_service(settings, store, action: str, args: argparse.Namespac
     """Best-effort index update in the optional metadata service (the share stays authoritative)."""
     if not settings.service_url or action not in ("publish-dataset", "publish-run", "review"):
         return
-    from .collab.client import ServiceClient, ServiceError
+    from .collab.client import update_service
 
-    client = ServiceClient(settings.service_url, settings.service_token)
-    try:
-        client.sync_from_share(store)
-        print(f"Metadata service updated ({settings.service_url}).")
-    except ServiceError as exc:
-        print(f"Note: metadata service not updated ({exc}); the shared folder is up to date and the service can be "
-              "re-synchronised later with 'msw share sync'.")
+    print(update_service(settings, store))
 
 
 def cmd_quickstart(args: argparse.Namespace) -> int:

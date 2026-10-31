@@ -1,6 +1,6 @@
 # Architecture decisions
 
-Status: Phases 1-2 implemented (decisions AD-1..AD-8 below); collaboration architecture still open.
+Status: Phases 1-3 implemented (decisions AD-1..AD-11 below).
 
 The system has three logical responsibilities:
 1. **Desktop data/compute client (Windows):** Guided UI, verified dataset cache, real local model training and telemetry, intermediate inference, reporting.
@@ -88,3 +88,39 @@ evaluation and prediction upsample class probabilities (bilinear) to the origina
 original masks. Per-image standardization uses whole-image statistics (computed before patching) so patches and
 full-image inference see the same scaling. Inputs larger than 512 px are predicted in overlapping 512 px tiles with
 averaged probabilities (bounded GPU memory).
+
+## Decisions (Phase 3, 2026-10-31)
+
+### AD-9 Shared folder = content-addressed blobs + immutable records, no database, no locks
+```
+<share>/msw-share.json
+<share>/blobs/sha256/aa/bb/<sha256>        immutable file contents (deduplicated)
+<share>/blobs/partial/<sha256>.<host>.part in-progress uploads (resumable per computer)
+<share>/datasets/<dataset_id>.json         dataset record: relative path -> blob hash, summary, publisher
+<share>/runs/<run_id>.json                 run record: files (best checkpoint, logs, samples, evaluation), summary
+<share>/reviews/<run_id>/<time>-<id>.json  one file per review decision (append-only)
+```
+- Records are created with an exclusive, atomic "create if absent" (`os.link` on POSIX, `os.rename` on Windows,
+  check-then-rename fallback on file systems without hard links). They are never overwritten; republishing identical
+  content is a no-op, different content under the same id is an error.
+- A record is written only after every referenced blob is uploaded and its SHA-256 verified, so a reader never sees a
+  record pointing to partial data. Two computers uploading the same blob race benignly (identical content).
+- Concurrency without locks: dataset ids are content hashes, run ids are unique, reviews are separate files.
+  A per-host lock file only prevents two processes on one computer appending to the same partial upload.
+- Tradeoff: no garbage collection of unreferenced blobs yet (only stale partial uploads); deleting published data is
+  an administrator action outside the app.
+
+### AD-10 Downloads go through a local blob cache
+`<workspace>/cache/blobs` uses the same store, so an interrupted multi-GB download keeps its completed (and partially
+completed) files; materialisation into `datasets/` or `runs/` happens in a staging directory published atomically.
+Every byte is hash-verified on the way in; a corrupt shared blob is rejected and never enters the cache.
+
+### AD-11 Review/approval and the optional metadata service
+- Approval is an append-only review record (approved / needs_changes / rejected with comment). The latest decision
+  is the status. Self-approval is refused (share and service); rejections need a comment.
+- Identity on the share is the configured/OS user name (trust within the office). The optional service adds token
+  authentication and records `submitted_by`; entries whose claimed author differs are shown as unverified.
+- Service: Python standard library (`http.server`, `sqlite3`), SQLite in WAL mode on the VM's local disk with a single
+  write lock (refuses UNC paths), immutable registrations (409 on conflicting content), audit table, connection
+  backlog 128. Clients retry connection failures (all endpoints idempotent). The share remains authoritative;
+  `msw share sync` rebuilds the index. Integration with ml_server authentication is a Phase 4 item.

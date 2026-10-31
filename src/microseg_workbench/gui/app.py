@@ -19,9 +19,10 @@ from .context import AppContext
 from .data_page import DataPage
 from .help_page import HelpPage
 from .results_page import ResultsPage
+from .share_page import SharePage
 from .train_page import TrainPage
 
-STEPS = ["1  Data", "2  Preprocess", "3  Training", "4  Results", "5  Compare", "?  Help"]
+STEPS = ["1  Data", "2  Preprocess", "3  Training", "4  Results", "5  Compare", "6  Share", "?  Help"]
 
 
 class MainWindow(QMainWindow):
@@ -35,6 +36,7 @@ class MainWindow(QMainWindow):
         self.train_page = TrainPage(self.ctx, self.augment_page.config, self.augment_page.preprocess)
         self.results_page = ResultsPage(self.ctx, resume=self._resume_run)
         self.compare_page = ComparePage(self.ctx)
+        self.share_page = SharePage(self.ctx)
         self.help_page = HelpPage()
 
         self.nav = QListWidget()
@@ -43,7 +45,7 @@ class MainWindow(QMainWindow):
         self.nav.setStyleSheet("QListWidget { font-size: 14px; } QListWidget::item { padding: 10px 6px; }")
         self.stack = QStackedWidget()
         for page in (self.data_page, self.augment_page, self.train_page, self.results_page, self.compare_page,
-                     self.help_page):
+                     self.share_page, self.help_page):
             self.stack.addWidget(page)
         self.nav.currentRowChanged.connect(self.stack.setCurrentIndex)
         self.nav.setCurrentRow(0)
@@ -85,6 +87,7 @@ class MainWindow(QMainWindow):
         folder = QFileDialog.getExistingDirectory(self, "Choose workspace folder", str(self.ctx.workspace.root))
         if folder:
             self.ctx.set_workspace(Workspace(Path(folder)))
+            self.share_page.load_settings()
             self._update_workspace_label()
 
     def closeEvent(self, event) -> None:  # noqa: N802

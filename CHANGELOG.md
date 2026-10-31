@@ -1,6 +1,13 @@
 # Changelog
 
 ## Unreleased
+- Phase 3 collaboration:
+  - Shared office folder with content-addressed, deduplicated, hash-verified storage and immutable records.
+  - Resumable uploads/downloads with a local cache; atomic materialisation; corrupt blobs rejected.
+  - Publish dataset versions and completed runs (provenance rules enforced); download colleagues' work.
+  - Review/approval records (no self-approval); approved-models view.
+  - Optional metadata service (`msw-service`) with token auth and SQLite on the VM's local disk; `msw share sync`.
+  - `msw share ...` commands and the Share page in the desktop app.
 - Phase 2 local GPU research experience:
   - Exact resume of cancelled/failed/interrupted runs (`msw resume`, Results page), interrupted-process detection.
   - CUDA diagnosis, automatic batch size, mixed precision, actionable out-of-memory errors, `large_gpu` preset.

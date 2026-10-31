@@ -87,3 +87,15 @@ class ServiceClient:
                     if not str(exc).startswith("403"):
                         raise
         return sent
+
+
+def update_service(settings, store) -> str:
+    """Best-effort: send shared records to the configured service. Returns a user-facing note."""
+    if not settings.service_url:
+        return ""
+    try:
+        n = ServiceClient(settings.service_url, settings.service_token).sync_from_share(store)
+    except ServiceError as exc:
+        return (f"Metadata service not updated ({exc}); the shared folder is up to date. Use 'Sync with service' "
+                "later.")
+    return f"Metadata service updated ({n} records)."
