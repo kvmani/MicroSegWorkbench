@@ -1,0 +1,25 @@
+# Standalone systemd unit for the optional MicroSegWorkbench metadata service.
+# (In the ML Server suite, register it as a component of ml_server_deploy instead - see docs/DEPLOYMENT.md.)
+#
+# Install: copy the source to /opt/microsegworkbench, adjust User/paths, then
+#   sudo cp msw-metadata.service /etc/systemd/system/ && sudo systemctl daemon-reload
+#   sudo systemctl enable --now msw-metadata
+[Unit]
+Description=MicroSegWorkbench metadata service
+After=network.target
+
+[Service]
+Type=simple
+User=kvmani
+WorkingDirectory=/opt/microsegworkbench
+Environment=PYTHONPATH=/opt/microsegworkbench/src
+# The database MUST be on this server's local disk (never on the network share).
+ExecStart=/usr/bin/python3 -m microseg_workbench.collab.server serve --db /var/lib/msw/meta.sqlite --host 0.0.0.0 --port 5080
+Restart=on-failure
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=msw-metadata
+
+[Install]
+WantedBy=multi-user.target

@@ -2,11 +2,12 @@
 
 Collaborative, reproducible machine-learning workbench for scientific microstructure segmentation.
 
-**Status:** Phases 1-3 implemented and tested on synthetic data on Linux/CPU:
+**Status (v0.4.0):** Phases 1-4 implemented and tested on synthetic data on Linux/CPU:
 data checking -> immutable dataset version with leakage-safe split -> preprocessing and augmentation preview ->
 real model training with live progress, resource monitoring, resume and GPU safety -> test-set evaluation, run
 comparison and segmentation of new images -> publication to a shared folder, download by colleagues, independent
-review/approval, and an optional metadata service. Desktop UI and CLI.
+review/approval, an optional metadata service with a read-only registry page, OnlineAnnotator export import and
+optional HydrideSegmentation feature statistics. Desktop UI and CLI. Office deployment: [DEPLOYMENT](docs/DEPLOYMENT.md).
 Not yet verified on Windows or on a real GPU. See [PROGRESS](docs/PROGRESS.md) for evidence and known gaps.
 
 Start with [the specification](docs/SPECIFICATION.md). Coding agents follow [AGENTS.md](AGENTS.md); independent reviewers follow [REVIEW.md](REVIEW.md).
@@ -44,6 +45,9 @@ Workspace folder (datasets and runs) defaults to `~/MicroSegWorkbench-workspace`
 | `msw compare RUN RUN... [--csv f]` | Compare runs (warns if test sets differ) |
 | `msw predict RUN FOLDER --out NEW` | Segment new images (masks, overlays, predictions.json) |
 | `msw devices` | CPU/GPU, CUDA diagnosis, live GPU readings |
+| `msw import-oa EXPORT.zip [--out DIR]` | Import an OnlineAnnotator export (verified, provenance kept) |
+| `msw prepare DIR --name N --split-source annotator` | Use the splits assigned in OnlineAnnotator (leakage-checked) |
+| `msw hydride-stats RUN [--um-per-px X]` | HydrideSegmentation feature statistics, truth vs prediction (optional) |
 
 ### Collaboration (shared office folder)
 | Command | Purpose |
@@ -58,12 +62,13 @@ Workspace folder (datasets and runs) defaults to `~/MicroSegWorkbench-workspace`
 
 Optional metadata service on the Ubuntu VM (standard library only, SQLite on the VM's local disk):
 `msw-service add-user alice --db /var/lib/msw/meta.sqlite` (prints a token), then
-`msw-service serve --db /var/lib/msw/meta.sqlite --host 0.0.0.0 --port 8765`.
+`msw-service serve --db /var/lib/msw/meta.sqlite --host 0.0.0.0 --port 5080 [--public-read]`.
 
 ### Input folder format
 `<stem>.png|tif|jpg|bmp` micrographs, `<stem>_mask.png` masks (same size, lossless) and a `classes.json`
 mapping every mask value to a named class (`indexed`) or declaring `binary_0_255` masks. This matches
-OnlineAnnotator's `hydride_pairs` export naming. Details: in-app Help and [ARCHITECTURE](docs/ARCHITECTURE.md).
+OnlineAnnotator's `hydride_pairs` export naming; `msw import-oa` converts complete OnlineAnnotator exports.
+Details: in-app Help and [ARCHITECTURE](docs/ARCHITECTURE.md).
 
 ## Office deployment
 - **Windows workstations:** Friendly Python desktop UI, local data cache and GPU/CPU execution.

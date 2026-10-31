@@ -47,7 +47,7 @@ class SharePage(QWidget):
         browse.clicked.connect(self._browse)
         self.user = QLineEdit()
         self.service = QLineEdit()
-        self.service.setPlaceholderText("optional, e.g. http://ml-vm:8765")
+        self.service.setPlaceholderText("optional, e.g. http://ml-vm:5080")
         self.token = QLineEdit()
         self.token.setEchoMode(QLineEdit.EchoMode.Password)
         save = QPushButton("Save and connect")

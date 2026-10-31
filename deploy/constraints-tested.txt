@@ -1,0 +1,11 @@
+# Exact versions used for the automated test runs recorded in docs/PROGRESS.md (Linux, Python 3.13).
+# Use as a constraints file (-c) to reproduce that environment as closely as the platform allows.
+numpy==2.5.3
+pillow==12.3.0
+PySide6==6.12.0
+psutil==7.2.2
+torch==2.15.0
+pytest==9.2.0
+scipy==1.18.1
+scikit-image==0.26.0
+matplotlib==3.11.2

@@ -275,3 +275,17 @@ def test_feature_statistics_tab(app, tmp_path, monkeypatch):
     wait_until(app, lambda: not res.stats_busy)
     assert res.stats_table.rowCount() == len(v.samples("test"))
     assert "HydrideSegmentation" in res.stats_note.text()
+
+
+def test_frozen_launch_command_and_cli_dispatch(tmp_path, monkeypatch, capsys):
+    import sys
+
+    from microseg_workbench.gui.app import main
+    from microseg_workbench.gui.train_page import worker_command
+
+    prog, args = worker_command(["runs"])
+    assert prog == sys.executable and args[:2] == ["-m", "microseg_workbench"]
+    monkeypatch.setattr(sys, "frozen", True, raising=False)
+    prog, args = worker_command(["runs"])
+    assert args == ["--cli", "runs"]
+    assert main(["--cli", "--workspace", str(tmp_path / "ws"), "datasets"]) == 0

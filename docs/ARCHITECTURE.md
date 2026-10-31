@@ -1,6 +1,6 @@
 # Architecture decisions
 
-Status: Phases 1-3 implemented (decisions AD-1..AD-11 below).
+Status: Phases 1-4 implemented (decisions AD-1..AD-14 below).
 
 The system has three logical responsibilities:
 1. **Desktop data/compute client (Windows):** Guided UI, verified dataset cache, real local model training and telemetry, intermediate inference, reporting.
@@ -124,3 +124,31 @@ Every byte is hash-verified on the way in; a corrupt shared blob is rejected and
   write lock (refuses UNC paths), immutable registrations (409 on conflicting content), audit table, connection
   backlog 128. Clients retry connection failures (all endpoints idempotent). The share remains authoritative;
   `msw share sync` rebuilds the index. Integration with ml_server authentication is a Phase 4 item.
+
+## Decisions (Phase 4, 2026-10-31)
+
+### AD-12 OnlineAnnotator import contract
+Input: `online-annotator.export/1` bundles (ZIP or extracted), both layouts, all four mask styles. Output: an ordinary
+pair folder whose masks hold the OnlineAnnotator class numbers (1..255, 0 = background; binary/red styles map the
+target to its own class number), plus `classes.json` and `provenance.json`. Each image and mask is checked against
+the manifest SHA-256 and decoded class pixel counts against the manifest counts; unknown colours/values abort the
+import (staging folder discarded). Provenance flows into the dataset manifest per sample; unapproved masks set
+`contains_unapproved_annotations`, which evaluation reports repeat. Assigned splits can be used
+(`SplitConfig.source = "annotator"`), validated for completeness and group leakage. `source` enters the dataset id
+only when not the default, so earlier group-split ids are unchanged.
+
+### AD-13 HydrideSegmentation reuse through an optional adapter
+HydrideSegmentation's `compute_hydride_statistics`, `statistics_to_json` and `scientific_distance_metrics` are called,
+not copied (`integrations/hydrideseg.py`), found via installation or `MSW_HYDRIDESEG_PATH` (appended to `sys.path`
+so it cannot shadow workbench modules). Reports name the HydrideSegmentation version. Training, metrics and data
+handling do not depend on it; its heavier dependencies (scipy, scikit-image, matplotlib) stay optional. Contract
+tests check orientations of known bars (0 deg / 90 deg) and zero distances for identical masks. Its U-Net training was not
+adopted: the workbench's trainer is small, tested and integrated with resume/telemetry; revisit if a stronger
+architecture is needed (e.g. its segmentation-models-pytorch backbones).
+
+### AD-14 Deployment
+Workstations: per-user venv from an offline wheelhouse (`deploy/windows/install.ps1`), desktop shortcut, workspace
+on local disk. A frozen build re-launches itself with `--cli` for training. VM: the metadata service imports only
+the standard library and the workbench package, port 5080 (8765 is pytex), registrable as an `ml_server_deploy`
+component (manifest entry proposed in docs/DEPLOYMENT.md, not applied there); optional `--public-read` HTML registry
+for an `ml_server` portal tile. Neither reference repository was modified.

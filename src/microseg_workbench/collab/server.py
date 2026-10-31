@@ -8,13 +8,14 @@ the index can always be rebuilt with ``msw share sync``.
 Run::
 
     python -m microseg_workbench.collab.server add-user alice --db /var/lib/msw/meta.sqlite   # prints a token
-    python -m microseg_workbench.collab.server serve --db /var/lib/msw/meta.sqlite --host 0.0.0.0 --port 8765
+    python -m microseg_workbench.collab.server serve --db /var/lib/msw/meta.sqlite --host 0.0.0.0 --port 5080
 """
 
 from __future__ import annotations
 
 import argparse
 import hashlib
+import html
 import json
 import secrets
 import sqlite3
@@ -139,9 +140,65 @@ class MetadataDB:
         return out
 
 
+def _fmt(v: Any) -> str:
+    return "n/a" if v is None else f"{v:.4f}" if isinstance(v, float) else html.escape(str(v))
+
+
+def registry_page(db: MetadataDB) -> str:
+    """Read-only HTML overview (for an intranet portal tile). Server-rendered; no scripts or external assets."""
+    runs = db.runs_with_status()
+    datasets = db.list("datasets")
+
+    def run_rows(items: list[dict[str, Any]], approved: bool) -> str:
+        rows = []
+        for item in items:
+            r = item["record"]
+            summary = r.get("summary") or {}
+            classes = ", ".join(f"{html.escape(k)} {_fmt(v)}" for k, v in (summary.get("per_class_iou") or {}).items())
+            last = item["reviews"][-1]["record"] if item["reviews"] else None
+            review = (f"{html.escape(last['decision'])} by {html.escape(last['reviewer'])} "
+                      f"{html.escape(last['reviewed_at'][:10])}" if last else "unreviewed")
+            if approved and item["review_status"] != "approved":
+                continue
+            rows.append(f"<tr><td>{html.escape(r['run_id'])}</td><td>{html.escape(r['dataset_id'])}</td>"
+                        f"<td>{_fmt(summary.get('mean_iou'))}</td><td>{classes}</td>"
+                        f"<td>{html.escape(r['published_by'])}</td><td>{review}</td></tr>")
+        return "".join(rows) or "<tr><td colspan='6'>none</td></tr>"
+
+    head = "<tr><th>Run</th><th>Dataset version</th><th>Test mIoU</th><th>Per-class IoU</th><th>Published by</th>" \
+           "<th>Latest review</th></tr>"
+    ds_rows = "".join(
+        f"<tr><td>{html.escape(d['record']['dataset_id'])}</td><td>{html.escape(str(d['record'].get('split_counts')))}"
+        f"</td><td>{html.escape(', '.join(d['record'].get('class_names', [])))}</td>"
+        f"<td>{html.escape(d['record']['published_by'])}</td></tr>" for d in datasets) or \
+        "<tr><td colspan='4'>none</td></tr>"
+    return f"""<!doctype html><html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1"><title>MicroSegWorkbench models</title>
+<style>body{{font-family:Segoe UI,Arial,sans-serif;margin:24px;color:#222;background:#fff}}
+table{{border-collapse:collapse;margin-bottom:24px;width:100%}}th,td{{border:1px solid #ccc;padding:4px 8px;
+text-align:left;font-size:14px}}th{{background:#f2f2f2}}.note{{color:#555}}</style></head><body>
+<h1>MicroSegWorkbench model registry</h1>
+<p class="note">Read-only index of the shared folder. Use the MicroSegWorkbench desktop app to download,
+compare, review or apply models. Only models approved by someone other than their publisher are deployment
+candidates. Version {html.escape(__version__)}.</p>
+<h2>Approved models</h2><table>{head}{run_rows(runs, True)}</table>
+<h2>All published runs</h2><table>{head}{run_rows(runs, False)}</table>
+<h2>Dataset versions</h2><table><tr><th>Dataset version</th><th>Images (train/val/test)</th><th>Classes</th>
+<th>Published by</th></tr>{ds_rows}</table></body></html>"""
+
+
 class Handler(BaseHTTPRequestHandler):
     db: MetadataDB
+    public_read: bool = False
     server_version = f"msw-metadata/{__version__}"
+
+    def _send_html(self, status: int, text: str) -> None:
+        body = text.encode("utf-8")
+        self.send_response(status)
+        self.send_header("Content-Type", "text/html; charset=utf-8")
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
 
     def log_message(self, fmt: str, *args: Any) -> None:  # quiet by default; audit table records writes
         pass
@@ -162,6 +219,11 @@ class Handler(BaseHTTPRequestHandler):
         parts = [unquote(p) for p in urlparse(self.path).path.strip("/").split("/")]
         if parts == ["api", "health"]:
             return self._send(HTTPStatus.OK, {"status": "ok", "version": __version__})
+        if parts in ([""], ["registry"]):
+            if self.public_read or self._user():
+                return self._send_html(HTTPStatus.OK, registry_page(self.db))
+            return self._send_html(HTTPStatus.UNAUTHORIZED, "<!doctype html><title>Sign-in required</title>"
+                                   "<p>This registry is not public. Use the MicroSegWorkbench desktop app.</p>")
         user = self._user()
         if user is None:
             return self._send(HTTPStatus.UNAUTHORIZED, {"error": "missing or invalid token"})
@@ -205,9 +267,10 @@ class MetadataServer(ThreadingHTTPServer):
     daemon_threads = True
 
 
-def make_server(db_path: Path, host: str = "127.0.0.1", port: int = 8765) -> ThreadingHTTPServer:
+def make_server(db_path: Path, host: str = "127.0.0.1", port: int = 5080,
+                public_read: bool = False) -> ThreadingHTTPServer:
     db = MetadataDB(db_path)
-    handler = type("BoundHandler", (Handler,), {"db": db})
+    handler = type("BoundHandler", (Handler,), {"db": db, "public_read": public_read})
     server = MetadataServer((host, port), handler)
     server.daemon_threads = True
     return server
@@ -219,7 +282,9 @@ def main(argv: list[str] | None = None) -> int:
     s = sub.add_parser("serve")
     s.add_argument("--db", required=True, help="SQLite file on the VM's LOCAL disk")
     s.add_argument("--host", default="127.0.0.1")
-    s.add_argument("--port", type=int, default=8765)
+    s.add_argument("--port", type=int, default=5080, help="default 5080 (8765 is used by pytex in the ML suite)")
+    s.add_argument("--public-read", action="store_true",
+                   help="let anyone on the intranet view the read-only registry page at / (for a portal tile)")
     a = sub.add_parser("add-user", help="create/replace a user and print their token")
     a.add_argument("name")
     a.add_argument("--db", required=True)
@@ -227,7 +292,7 @@ def main(argv: list[str] | None = None) -> int:
     if args.cmd == "add-user":
         print(MetadataDB(Path(args.db)).add_user(args.name))
         return 0
-    server = make_server(Path(args.db), args.host, args.port)
+    server = make_server(Path(args.db), args.host, args.port, public_read=args.public_read)
     print(f"Metadata service on http://{args.host}:{server.server_address[1]} (database {args.db})", flush=True)
     try:
         server.serve_forever()

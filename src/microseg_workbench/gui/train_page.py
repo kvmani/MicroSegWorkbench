@@ -35,6 +35,13 @@ HELP = ("<b>Step 3 - Training.</b> Choose a dataset version and a preset. <i>Qui
         "from step 4.")
 
 
+def worker_command(cli_args: list[str]) -> tuple[str, list[str]]:
+    """Program and arguments that run ``msw <cli_args>`` in a child process (source install or frozen build)."""
+    if getattr(sys, "frozen", False):
+        return sys.executable, ["--cli", *cli_args]
+    return sys.executable, ["-m", "microseg_workbench", *cli_args]
+
+
 def _fmt_seconds(s: float | None) -> str:
     if s is None:
         return "-"
@@ -328,7 +335,7 @@ class TrainPage(QWidget):
         proc.setProcessEnvironment(env)
         proc.readyReadStandardError.connect(self._read_stderr)
         proc.finished.connect(self._finished)
-        proc.start(sys.executable, ["-m", "microseg_workbench", "--workspace", str(self.ctx.workspace.root), *args])
+        proc.start(*worker_command(["--workspace", str(self.ctx.workspace.root), *args]))
         self.process = proc
         self.start_btn.setEnabled(False)
         self.cancel_btn.setEnabled(True)

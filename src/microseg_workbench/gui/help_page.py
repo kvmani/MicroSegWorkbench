@@ -34,6 +34,14 @@ or binary masks follow the same naming; add a classes.json describing the export
 <p>Masks with values not listed in classes.json, colour masks, mismatched sizes, missing partners and duplicate images
 are reported as errors. Nothing is silently converted, thresholded or dropped.</p>
 
+<h3>Importing from OnlineAnnotator</h3>
+<p>In step 1 press <i>Import OnlineAnnotator export...</i> and choose the ZIP downloaded from OnlineAnnotator (any
+layout and mask style). Every file is checked against the fingerprints in the export, class numbers stay exactly
+as in OnlineAnnotator, and who annotated and approved each mask is kept with the dataset. Masks that were submitted
+but not approved are flagged, and results trained on them say so. If splits were assigned in OnlineAnnotator, choose
+<i>Split: As assigned in OnlineAnnotator</i>; this is refused if images of one specimen ended up in different
+splits.</p>
+
 <h3>Groups and leakage</h3>
 <p>Images from the same specimen or micrograph look alike. If some are in training and others in the test set,
 test scores are too optimistic. The <i>group pattern</i> extracts a group name from each file name (default: the
@@ -87,6 +95,12 @@ output folder; each image gets a mask (<code>_pred_mask.png</code>, original cla
 <h3>Results and approval</h3>
 <p>The best checkpoint (highest validation feature IoU) is evaluated on the test split. Results stay
 <b>unreviewed</b> until a colleague reviews the published run in <b>6 Share</b>.</p>
+
+<h3>Feature statistics (hydrides)</h3>
+<p>In <b>4 Results</b>, the <i>Feature statistics</i> tab compares ground truth and prediction on the test images for
+one class: area fraction, number of features, and how different the size and orientation distributions are
+(Kolmogorov-Smirnov distance, 0 = identical). The calculations are HydrideSegmentation's own; the tab says so and
+asks for that package if it is not installed. Enter micrometres per pixel to get physical sizes.</p>
 
 <h3>Working with colleagues (6 Share)</h3>
 <ul>

@@ -1,14 +1,14 @@
 # Working ledger — agent handoff
 
 ## Current status
-**Phase 3 — collaboration: implemented and tested with a local mock share and an in-process service (2026-10-31).**
-Phases 1-3 work end to end in the UI and CLI on synthetic data. None is formally closed: each still needs the
-office checks (Windows, NVIDIA GPU, real SMB share, Ubuntu VM) and an independent review. Next: Phase 4
-(OnlineAnnotator import, HydrideSegmentation reuse, deployment/packaging documentation).
+**All four roadmap phases are implemented (v0.4.0, 2026-10-31) and tested in a Linux sandbox on CPU with synthetic
+data, a local mock share, an in-process metadata service and the real HydrideSegmentation analysis code.**
+No phase is formally closed: the remaining work is verification in the office (Windows workstation, NVIDIA GPU,
+SMB share, Ubuntu VM), an independent review (REVIEW.md), and a few deliberately deferred items (see Known gaps).
 
 ## Current objective
-Phase 4: import OnlineAnnotator export bundles directly (manifest, classes, provenance), assess and reuse stable
-HydrideSegmentation algorithms behind explicit contracts, offline Windows packaging and VM deployment docs.
+Hand over for office rehearsal and independent review. Implementation agents should next address review findings
+and the highest-value gaps (streaming data loader for large datasets, packaged Windows build, share GC).
 
 ## Decisions
 - New independent repository; reference rather than modify HydrideSegmentation, OnlineAnnotator, ml_server and ml_server_deploy.
@@ -25,6 +25,9 @@ HydrideSegmentation algorithms behind explicit contracts, offline Windows packag
 - `quick_cpu` preset: 15 epochs, 16 base channels, depth 2, CE+Dice loss (~11 s on 4 cores). Changed from 8
   channels in Phase 2 after a 4-seed sweep: the 8-channel model failed to learn the rare pore class for some seeds
   (this also affected Phase 1, whose "~0.97" figure was seed-dependent).
+- Phase 4 decisions AD-12..AD-14 (OnlineAnnotator import contract, HydrideSegmentation reuse via optional adapter,
+  deployment layout; reference repositories unmodified) are in docs/ARCHITECTURE.md.
+- Metadata service port 5080: ml_server_deploy already runs pytex on 8765.
 - Phase 3 decisions AD-9..AD-11 (immutable content-addressed share without database or locks, local blob cache,
   append-only reviews with no self-approval, optional stdlib metadata service) are in docs/ARCHITECTURE.md.
 - Phase 2 decisions AD-6..AD-8 (resume semantics, GPU safety/telemetry, preprocessing at original-resolution
@@ -46,10 +49,14 @@ HydrideSegmentation algorithms behind explicit contracts, offline Windows packag
 - Phase 3: blob store (dedupe, resumable verified copies, host locks), shared store (exclusive immutable records,
   publish/pull datasets and runs, reviews, check), local cache, `msw share ...`, metadata service + client,
   Share page.
+- Phase 4: OnlineAnnotator import (CLI + Data page, annotator splits), HydrideSegmentation adapter (CLI + Results
+  tab), deployment kit (`deploy/`, docs/DEPLOYMENT.md), registry page, frozen-build launcher, version 0.4.0.
 
 ## Verification
 - 2026-10-31, Linux sandbox, Python 3.13.18, torch 2.15.0 (CUDA build, no GPU present), numpy 2.5.3, Pillow 12.3,
-  PySide6 6.12 offscreen: `python -m pytest -q` -> **83 passed** in ~1.6 min.
+  PySide6 6.12 offscreen: `python -m pytest -q` -> **97 passed, 2 skipped** in ~1.5 min (the 2 skips need HydrideSegmentation);
+  with `MSW_HYDRIDESEG_PATH=<HydrideSegmentation checkout @ main, v2.0.0>` and scipy 1.18.1 / scikit-image 0.26.0 /
+  matplotlib 3.11.2 installed -> **99 passed**.
   - Phase 1 coverage as before (numerical metrics, data integrity, leakage, augmentation alignment, training,
     CLI and UI workflows).
   - Phase 2: resumed run bit-identical to uninterrupted run (losses and final weights); resume refused when completed
@@ -66,11 +73,22 @@ HydrideSegmentation algorithms behind explicit contracts, offline Windows packag
     republish no-op); reviews (no self-approval, comment required, latest decision wins); service auth, 409 on
     conflicting content, self-approval 403, 25 concurrent registrations, UNC database path refused, idempotent
     sync; two-user CLI workflow with service; two-user Share page workflow.
+  - Phase 4: OnlineAnnotator bundles in all 4 mask styles and both layouts (fixture built to the OnlineAnnotator
+    export code), ZIP and extracted folder, tampered file / inconsistent pixel counts / unknown colour / wrong schema
+    abort without leftovers, provenance and unapproved flags reach the dataset manifest, annotator splits incl.
+    leakage and unassigned refusals, CLI and Data page import; HydrideSegmentation contract (bar orientations
+    0/90 deg, zero distance for identical masks, end-to-end run and predictions analysis, Results tab); registry page
+    private by default and HTML-escaped; frozen launch command; service imports without third-party packages.
   - Numerical regression: quick preset learns all synthetic classes (IoU > 0.8) for seeds 1 and 2.
 - Seed sweep (4 seeds, synthetic): quick preset test feature mIoU 0.956-0.982.
 - UI screenshots of training resources tab (simulated GPU) and compare page inspected manually.
 
 ## Known gaps (honest coverage)
+- **Office verification outstanding for everything**: Windows install script (`deploy/windows/install.ps1`) and
+  launcher were written but never executed; no NVIDIA GPU run; no SMB share; no VM deployment; OnlineAnnotator import
+  tested only against a fixture built from its export code, not a real export ZIP.
+- No packaged (frozen) Windows executable is built; only the launch path for one is implemented and tested.
+- Independent scientific review (Phase 4 deliverable) not done - must be a separate reviewer.
 - **Not run on Windows**, nor on an NVIDIA GPU: CUDA paths (auto batch probe, mixed precision, NVML/nvidia-smi
   readings, OOM on real hardware) are only exercised with fakes/simulation.
 - Whole training split is loaded into memory; very large datasets need a streaming loader (Phase 3/4 concern).
@@ -89,8 +107,9 @@ None for synthetic development. Needs from the office: a Windows workstation run
 `python -m pytest -q` and `msw-gui`; GPU model/VRAM; exact share paths and permissions (Phase 3).
 
 ## Next steps
-1. Phase 4: OnlineAnnotator bundle import; HydrideSegmentation reuse assessment; deployment and packaging docs
-   (offline wheelhouse, Windows launcher, VM service unit).
-2. Office checks: Windows (`pip install -e .[all]`, `python -m pytest -q`, `msw-gui`), GPU `standard` preset, SMB
-   share (`msw share init` on a test folder, two workstations publish/pull), VM service.
-3. Independent review of Phases 1-3 per REVIEW.md.
+1. Independent review of v0.4.0 per REVIEW.md (scientific rules: ARCHITECTURE AD-4, AD-8, AD-12; concurrency and
+   publication: AD-9..AD-11).
+2. Office rehearsal following docs/DEPLOYMENT.md: wheelhouse build, Windows install + `python -m pytest -q`, GPU
+   `standard` preset, SMB share with two workstations, VM service, a real OnlineAnnotator export; record results here.
+3. Then, by value: streaming/lazy data loading for large datasets, data-loader worker processes for GPU throughput,
+   share garbage collection of unreferenced blobs, packaged Windows build, ml_server authentication for the service.

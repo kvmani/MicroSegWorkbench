@@ -100,9 +100,15 @@ class MainWindow(QMainWindow):
 
 
 def main(argv: list[str] | None = None) -> int:
+    argv = list(sys.argv[1:] if argv is None else argv)
+    if argv[:1] == ["--cli"]:
+        # A packaged (frozen) executable re-launches itself with --cli to run training in a child process.
+        from ..cli import main as cli_main
+
+        return cli_main(argv[1:])
     parser = argparse.ArgumentParser(prog="msw-gui")
     parser.add_argument("--workspace")
-    args = parser.parse_args(argv if argv is not None else sys.argv[1:])
+    args = parser.parse_args(argv)
     app = QApplication.instance() or QApplication(sys.argv[:1])
     window = MainWindow(Workspace(Path(args.workspace)) if args.workspace else Workspace.default())
     window.show()

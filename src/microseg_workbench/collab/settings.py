@@ -13,7 +13,7 @@ from ..core.workspace import Workspace
 class CollabSettings:
     share_path: str = ""
     user: str = ""  # empty = operating-system user name (or MSW_USER)
-    service_url: str = ""  # optional metadata service, e.g. http://vm-host:8765
+    service_url: str = ""  # optional metadata service, e.g. http://vm-host:5080
     service_token: str = ""
 
     @classmethod

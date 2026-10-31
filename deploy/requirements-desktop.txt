@@ -1,0 +1,12 @@
+# Windows workstation (desktop app + training). Download into an offline wheelhouse on an internet-connected
+# machine (see docs/DEPLOYMENT.md), then install with --no-index --find-links.
+numpy>=1.24
+pillow>=10
+PySide6>=6.5
+psutil>=5.9
+# torch: download the CUDA build matching the workstation's NVIDIA driver (or the CPU build) separately.
+torch>=2.1
+# Optional: HydrideSegmentation feature statistics
+# scipy
+# scikit-image
+# matplotlib

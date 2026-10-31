@@ -1,6 +1,16 @@
 # Changelog
 
-## Unreleased
+## Unreleased (0.4.0)
+- Phase 4 integration and deployment:
+  - `msw import-oa` / Data page import of OnlineAnnotator exports (all layouts and mask styles) with hash and
+    pixel-count verification, exact class numbers and annotation provenance; optional annotator-assigned splits
+    with leakage check; unapproved masks flagged through to evaluation.
+  - Optional HydrideSegmentation adapter: feature statistics and truth-vs-prediction distribution distances
+    (`msw hydride-stats`, Results page tab).
+  - Deployment kit: offline wheelhouse instructions, Windows per-user installer and launcher, systemd unit,
+    ml_server_deploy component and portal tile proposals, runbook (docs/DEPLOYMENT.md).
+  - Metadata service: default port 5080 (8765 collides with pytex), read-only registry page (`--public-read`).
+  - Frozen-executable support for the training child process.
 - Phase 3 collaboration:
   - Shared office folder with content-addressed, deduplicated, hash-verified storage and immutable records.
   - Resumable uploads/downloads with a local cache; atomic materialisation; corrupt blobs rejected.
@@ -22,5 +32,5 @@
   - Synchronized augmentation with an ignore label for out-of-image pixels, and augmentation previews.
   - Small U-Net trained for real on CPU (GPU when available) with live events, atomic checkpoints, cancellation, fixed-sample prediction evolution and unreviewed test-set evaluation.
   - `msw` CLI (including `quickstart`) and `msw-gui` PySide6 desktop app with guided steps and in-app help.
-  - Deterministic synthetic micrographs and 42 tests (numerical metrics, leakage, alignment, integrity, determinism, cancellation, CLI and offscreen UI workflows).
+  - Deterministic synthetic micrographs and tests (numerical metrics, leakage, alignment, integrity, determinism, cancellation, CLI and offscreen UI workflows).
 - Initialize project mission, office-specific constraints, development rules, phased roadmap, continuous progress ledger and independent review procedure.

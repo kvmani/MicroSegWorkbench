@@ -102,3 +102,26 @@ def test_sync_from_share(service, tmp_path):
     runs = client.runs()
     assert runs[0]["review_status"] == "approved"
     assert runs[0]["identity_verified"] is False  # alice's record was submitted by bob
+
+
+def test_registry_page_private_by_default_and_escapes_html(tmp_path):
+    import urllib.error
+    import urllib.request
+
+    for public in (False, True):
+        server = make_server(tmp_path / f"m{public}.sqlite", port=0, public_read=public)
+        threading.Thread(target=server.serve_forever, daemon=True).start()
+        url = f"http://127.0.0.1:{server.server_address[1]}"
+        token = MetadataDB(tmp_path / f"m{public}.sqlite").add_user("alice")
+        ServiceClient(url, token).register("runs", run_record(run_id="<script>x</script>"))
+        try:
+            if not public:
+                with pytest.raises(urllib.error.HTTPError) as err:
+                    urllib.request.urlopen(url + "/")
+                assert err.value.code == 401
+            else:
+                page = urllib.request.urlopen(url + "/").read().decode()
+                assert "model registry" in page and "&lt;script&gt;" in page and "<script>" not in page
+        finally:
+            server.shutdown()
+            server.server_close()
