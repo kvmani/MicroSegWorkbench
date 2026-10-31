@@ -1,0 +1,272 @@
+"""Step 1: choose and check an image/mask folder, then create a dataset version."""
+
+from __future__ import annotations
+
+from collections import Counter
+from pathlib import Path
+
+from PySide6.QtCore import Qt
+from PySide6.QtGui import QColor
+from PySide6.QtWidgets import (
+    QDoubleSpinBox, QFileDialog, QFormLayout, QGroupBox, QHBoxLayout, QLabel, QLineEdit, QListWidget,
+    QListWidgetItem, QPushButton, QSpinBox, QSplitter, QTableWidget, QTableWidgetItem, QVBoxLayout, QWidget,
+)
+
+from ..core.dataset import ValidationReport, create_dataset_version, plan_split, validate_folder
+from ..core.imageio import decode_mask, load_image, load_mask_values, to_unit_float
+from ..core.render import overlay, tile_grid, to_display_rgb
+from ..core.splits import DEFAULT_GROUP_REGEX, SplitConfig, SplitError
+from ..core.synthetic import SyntheticSpec, write_synthetic_dataset
+from .context import AppContext
+from .widgets import ImageView, hint, run_background
+
+HELP = ("<b>Step 1 - Data.</b> Pick a folder with micrographs (<i>name</i>.png/.tif) and masks "
+        "(<i>name</i>_mask.png) plus a <i>classes.json</i> that names each mask value. "
+        "<b>Check folder</b> verifies pairing, sizes and class values. The <b>group pattern</b> decides which "
+        "images belong together (e.g. the same specimen); a whole group always stays in one split so the test "
+        "set never contains near-copies of training images. No folder yet? Use <b>Create demo data</b>.")
+
+
+class DataPage(QWidget):
+    def __init__(self, ctx: AppContext) -> None:
+        super().__init__()
+        self.ctx = ctx
+        self.report: ValidationReport | None = None
+        self.busy = False
+        self.last_version_id: str | None = None
+
+        self.folder = QLineEdit()
+        self.folder.setPlaceholderText("Folder with images, *_mask.png masks and classes.json")
+        browse = QPushButton("Browse...")
+        browse.clicked.connect(self._browse)
+        self.demo_btn = QPushButton("Create demo data")
+        self.demo_btn.setToolTip("Writes small SYNTHETIC micrographs into the workspace so you can try every step.")
+        self.demo_btn.clicked.connect(self.create_demo_data)
+        self.regex = QLineEdit(DEFAULT_GROUP_REGEX)
+        self.regex.setToolTip("Regular expression; its first (...) group is the specimen/source name. "
+                              "Default: text before the first underscore, e.g. S01 in S01_0003.png.")
+        self.check_btn = QPushButton("Check folder")
+        self.check_btn.setDefault(True)
+        self.check_btn.clicked.connect(self.check_folder)
+
+        row1 = QHBoxLayout()
+        row1.addWidget(QLabel("Folder:"))
+        row1.addWidget(self.folder, 1)
+        row1.addWidget(browse)
+        row1.addWidget(self.demo_btn)
+        row2 = QHBoxLayout()
+        row2.addWidget(QLabel("Group pattern:"))
+        row2.addWidget(self.regex, 1)
+        row2.addWidget(self.check_btn)
+
+        self.summary = QLabel("No folder checked yet.")
+        self.summary.setWordWrap(True)
+        self.issues = QListWidget()
+        self.issues.setMaximumHeight(110)
+        self.table = QTableWidget(0, 5)
+        self.table.setHorizontalHeaderLabels(["Image", "Group", "Size (HxW)", "Class pixels", "Status"])
+        self.table.horizontalHeader().setStretchLastSection(True)
+        self.table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
+        self.table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
+        self.table.itemSelectionChanged.connect(self._show_selected)
+        self.preview = ImageView("Select an image to see it with its mask")
+
+        split_box = QGroupBox("Create dataset version (fixed, reproducible split)")
+        form = QFormLayout(split_box)
+        self.name = QLineEdit("dataset")
+        self.train = self._fraction(0.6)
+        self.val = self._fraction(0.2)
+        self.test = self._fraction(0.2)
+        self.seed = QSpinBox()
+        self.seed.setRange(0, 2**31 - 1)
+        self.seed.setValue(42)
+        for w in (self.train, self.val, self.test, self.seed):
+            w.valueChanged.connect(self._update_split_preview)
+        self.split_preview = QLabel("")
+        self.split_preview.setWordWrap(True)
+        self.create_btn = QPushButton("Create dataset version")
+        self.create_btn.setEnabled(False)
+        self.create_btn.clicked.connect(self.create_version)
+        self.result = QLabel("")
+        self.result.setWordWrap(True)
+        self.result.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
+        form.addRow("Name:", self.name)
+        form.addRow("Train fraction:", self.train)
+        form.addRow("Validation fraction:", self.val)
+        form.addRow("Test fraction:", self.test)
+        form.addRow("Split seed:", self.seed)
+        form.addRow(self.split_preview)
+        form.addRow(self.create_btn)
+        form.addRow(self.result)
+
+        left = QWidget()
+        lv = QVBoxLayout(left)
+        lv.setContentsMargins(0, 0, 0, 0)
+        lv.addWidget(self.summary)
+        lv.addWidget(self.issues)
+        lv.addWidget(self.table, 1)
+        right = QWidget()
+        rv = QVBoxLayout(right)
+        rv.setContentsMargins(0, 0, 0, 0)
+        rv.addWidget(self.preview, 1)
+        rv.addWidget(split_box)
+        splitter = QSplitter()
+        splitter.addWidget(left)
+        splitter.addWidget(right)
+        splitter.setSizes([600, 450])
+
+        layout = QVBoxLayout(self)
+        layout.addWidget(hint(HELP))
+        layout.addLayout(row1)
+        layout.addLayout(row2)
+        layout.addWidget(splitter, 1)
+
+    @staticmethod
+    def _fraction(value: float) -> QDoubleSpinBox:
+        box = QDoubleSpinBox()
+        box.setRange(0.0, 1.0)
+        box.setSingleStep(0.05)
+        box.setDecimals(2)
+        box.setValue(value)
+        return box
+
+    def _browse(self) -> None:
+        folder = QFileDialog.getExistingDirectory(self, "Choose dataset folder", self.folder.text())
+        if folder:
+            self.folder.setText(folder)
+            self.check_folder()
+
+    def _set_busy(self, busy: bool, message: str = "") -> None:
+        self.busy = busy
+        for w in (self.check_btn, self.demo_btn):
+            w.setEnabled(not busy)
+        self.create_btn.setEnabled(not busy and bool(self.report and self.report.ok))
+        if message:
+            self.ctx.status_message.emit(message)
+
+    def create_demo_data(self) -> None:
+        out = self.ctx.workspace.demo_dir
+        self._set_busy(True, "Creating synthetic demo data...")
+
+        def done(_: object) -> None:
+            self._set_busy(False, f"Synthetic demo data written to {out}")
+            self.folder.setText(str(out))
+            self.name.setText("demo")
+            self.check_folder()
+
+        run_background(lambda: write_synthetic_dataset(out, SyntheticSpec()), done, self._failed("Demo data"))
+
+    def _failed(self, title: str):
+        def handler(message: str, details: str) -> None:
+            self._set_busy(False)
+            self.ctx.error(self, title, message, details)
+        return handler
+
+    def check_folder(self) -> None:
+        folder = Path(self.folder.text().strip())
+        if not self.folder.text().strip():
+            self.ctx.error(self, "Check folder", "Choose a folder first (or create demo data).")
+            return
+        regex = self.regex.text()
+        self._set_busy(True, f"Checking {folder}...")
+        self.report = None
+
+        def done(report: ValidationReport) -> None:
+            self.report = report
+            self._set_busy(False, report.summary())
+            self._show_report()
+
+        run_background(lambda: validate_folder(folder, regex), done, self._failed("Check folder"))
+
+    def _show_report(self) -> None:
+        report = self.report
+        assert report is not None
+        classes = ""
+        if report.class_map:
+            classes = "<br>Classes: " + ", ".join(f"{c.value} = {c.name}" for c in report.class_map.classes)
+        verdict = ("<span style='color:#1a7f37'><b>Ready.</b></span>" if report.ok else
+                   "<span style='color:#b42318'><b>Fix the errors below before creating a dataset.</b></span>")
+        self.summary.setText(f"{verdict} {report.summary()}{classes}")
+        self.issues.clear()
+        for issue in report.issues:
+            item = QListWidgetItem(f"{issue.severity.upper()}: {f'[{issue.stem}] ' if issue.stem else ''}{issue.message}")
+            item.setForeground(QColor("#b42318" if issue.severity == "error" else "#8a5a00"))
+            self.issues.addItem(item)
+        if not report.issues:
+            self.issues.addItem("No problems found.")
+        self.table.setRowCount(len(report.pairs))
+        names = {c.value: c.name for c in report.class_map.classes} if report.class_map else {}
+        for row, pair in enumerate(report.pairs):
+            pixels = ", ".join(f"{names.get(v, v)}: {n}" for v, n in pair.class_pixels.items() if n)
+            values = [pair.stem, pair.group, f"{pair.height}x{pair.width}" if pair.height else "-", pixels,
+                      "OK" if pair.ok else "Problem"]
+            for col, value in enumerate(values):
+                item = QTableWidgetItem(value)
+                if col == 4 and not pair.ok:
+                    item.setForeground(QColor("#b42318"))
+                self.table.setItem(row, col, item)
+        self.table.resizeColumnsToContents()
+        if report.pairs:
+            self.table.selectRow(0)
+        self.create_btn.setEnabled(report.ok)
+        self._update_split_preview()
+
+    def _split_config(self) -> SplitConfig:
+        return SplitConfig(train=self.train.value(), val=self.val.value(), test=self.test.value(),
+                           seed=self.seed.value(), group_regex=self.report.group_regex if self.report else self.regex.text())
+
+    def _update_split_preview(self) -> None:
+        if not self.report or not self.report.ok:
+            self.split_preview.setText("")
+            return
+        try:
+            plan = plan_split(self.report, self._split_config())
+        except SplitError as exc:
+            self.split_preview.setText(f"<span style='color:#b42318'>{exc}</span>")
+            self.create_btn.setEnabled(False)
+            return
+        self.create_btn.setEnabled(True)
+        groups = {p.group: plan[p.stem] for p in self.report.pairs if p.ok}
+        counts = Counter(plan.values())
+        lines = []
+        for split in ("train", "val", "test"):
+            members = sorted(g for g, s in groups.items() if s == split)
+            lines.append(f"<b>{split}</b>: {counts.get(split, 0)} images - groups {', '.join(members) or 'none'}")
+        self.split_preview.setText("<br>".join(lines))
+
+    def _show_selected(self) -> None:
+        rows = self.table.selectionModel().selectedRows() if self.table.selectionModel() else []
+        if not rows or not self.report:
+            return
+        pair = self.report.pairs[rows[0].row()]
+        try:
+            image = to_unit_float(load_image(pair.image_path).array)
+            if self.report.class_map and pair.ok:
+                labels = self.report.class_map.channel_lut()[decode_mask(load_mask_values(pair.mask_path),
+                                                                         self.report.class_map)]
+                self.preview.set_array(tile_grid([to_display_rgb(image), overlay(image, labels, self.report.class_map)],
+                                                 columns=2))
+            else:
+                self.preview.set_array(to_display_rgb(image))
+        except Exception as exc:  # unreadable file: say so in the preview instead of crashing
+            self.preview.set_pixmap(None)
+            self.preview.setText(f"Cannot display: {exc}")
+
+    def create_version(self) -> None:
+        if not self.report or not self.report.ok:
+            return
+        report, cfg, name = self.report, self._split_config(), self.name.text().strip()
+        datasets_dir = self.ctx.workspace.datasets_dir
+        self._set_busy(True, "Creating dataset version (copying and hashing files)...")
+
+        def done(version) -> None:
+            self._set_busy(False, f"Dataset version {version.dataset_id} ready")
+            self.last_version_id = version.dataset_id
+            counts = version.manifest["split_counts"]
+            self.result.setText(f"Created <b>{version.dataset_id}</b> - train {counts['train']}, "
+                                f"validation {counts['val']}, test {counts['test']}. Continue with step 2.")
+            self.ctx.datasets_changed.emit()
+
+        run_background(lambda: create_dataset_version(report, cfg, datasets_dir, name), done,
+                       self._failed("Create dataset version"))
+

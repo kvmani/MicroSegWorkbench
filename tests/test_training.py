@@ -122,3 +122,17 @@ def test_device_and_config_validation():
         TrainConfig(dataset_id="x", epochs=0)
     with pytest.raises(TrainConfigError, match="divisible"):
         preset_config("standard", "x", depth=4, augment=AugmentConfig(patch_size=24))
+
+
+def test_event_tail_skips_partial_lines(tmp_path):
+    from microseg_workbench.training.runs import EventTail
+
+    path = tmp_path / "events.jsonl"
+    tail = EventTail(path)
+    assert tail.read_new() == []
+    path.write_text('{"a": 1}\n{"b": ')
+    assert tail.read_new() == [{"a": 1}]
+    with open(path, "a") as fh:
+        fh.write('2}\n')
+    assert tail.read_new() == [{"b": 2}]
+    assert tail.read_new() == []

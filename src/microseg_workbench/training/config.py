@@ -66,7 +66,7 @@ class TrainConfig:
 
 PRESETS: dict[str, dict[str, Any]] = {
     "quick_cpu": dict(epochs=15, batch_size=8, base_channels=8, depth=2, patches_per_image=8, learning_rate=3e-3,
-                      description="Tiny model for a fast check on any computer (minutes on CPU)."),
+                      description="Tiny model for a fast check on any computer (about a minute on CPU for small datasets)."),
     "standard": dict(epochs=40, batch_size=8, base_channels=16, depth=3, patches_per_image=8, learning_rate=1e-3,
                      description="Larger model and more epochs; intended for a GPU workstation."),
 }

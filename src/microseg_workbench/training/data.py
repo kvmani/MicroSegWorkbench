@@ -21,10 +21,7 @@ class Sample:
 
 def value_to_channel_lut(class_map: ClassMap) -> np.ndarray:
     """Lookup table: mask value -> model channel index (undeclared values -> IGNORE)."""
-    lut = np.full(256, IGNORE_INDEX, dtype=np.uint8)
-    for idx, value in enumerate(class_map.values):
-        lut[value] = idx
-    return lut
+    return class_map.channel_lut()
 
 
 def load_split(version: DatasetVersion, split: str) -> list[Sample]:

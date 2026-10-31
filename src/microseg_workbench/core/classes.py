@@ -7,6 +7,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+import numpy as np
+
 from .atomic import read_json
 
 CLASSES_SCHEMA = "microseg-workbench.classes/1"
@@ -48,6 +50,8 @@ class ClassMap:
     def __post_init__(self) -> None:
         if self.mask_encoding not in MASK_ENCODINGS:
             raise ClassMapError(f"Unknown mask encoding {self.mask_encoding!r}; use one of {MASK_ENCODINGS}.")
+        if len(self.classes) > 32:
+            raise ClassMapError("At most 32 classes are supported.")
         if len(self.classes) < 2:
             raise ClassMapError("A class map needs at least two classes (background and one feature).")
         values = [c.value for c in self.classes]
@@ -79,6 +83,13 @@ class ClassMap:
     @property
     def num_classes(self) -> int:
         return len(self.classes)
+
+    def channel_lut(self) -> "np.ndarray":
+        """Lookup table: mask value -> model channel index; undeclared values -> 255 (ignore)."""
+        lut = np.full(256, 255, dtype=np.uint8)
+        for idx, value in enumerate(self.values):
+            lut[value] = idx
+        return lut
 
     def to_dict(self) -> dict[str, Any]:
         return {

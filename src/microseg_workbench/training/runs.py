@@ -121,3 +121,21 @@ def list_runs(runs_dir: Path) -> list[RunDir]:
         return []
     runs = [RunDir(p) for p in runs_dir.iterdir() if p.is_dir() and (p / "run.json").exists()]
     return sorted(runs, key=lambda r: r.run_id, reverse=True)
+
+
+class EventTail:
+    """Incrementally read complete new lines of ``events.jsonl`` (for live dashboards)."""
+
+    def __init__(self, path: Path) -> None:
+        self.path = path
+        self.offset = 0
+
+    def read_new(self) -> list[dict[str, Any]]:
+        if not self.path.exists():
+            return []
+        with open(self.path, "rb") as fh:
+            fh.seek(self.offset)
+            data = fh.read()
+        end = data.rfind(b"\n") + 1  # leave an unfinished last line for the next poll
+        self.offset += end
+        return [json.loads(line) for line in data[:end].decode("utf-8").splitlines() if line.strip()]
