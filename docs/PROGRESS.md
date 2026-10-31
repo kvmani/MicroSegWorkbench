@@ -120,7 +120,6 @@ and the highest-value remaining gaps (multi-process augmentation, CUDA package, 
   (permissions, latency, several machines at once, Linux CIFS mounts without hard links). Unreferenced-blob GC is manual (`msw share gc --unreferenced --apply`).
 - Identity on the share is self-declared (user name); only the optional service authenticates (tokens; no
   ml_server/LDAP integration yet). Service has no TLS (intended for the intranet VM behind existing services).
-- Packaged (frozen) Windows build would need a different training launcher (UI uses `sys.executable -m`).
 - CPU/RAM figures need `psutil`; without it they are reported as not measured.
 - Mixed precision on CPU is not offered (bfloat16 CPU autocast not evaluated).
 
