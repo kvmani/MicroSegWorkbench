@@ -48,7 +48,9 @@ Do not choose a complex distributed framework before a tested vertical slice jus
 - Split by group (regex on file stem, default: text before first `_`); every group goes to exactly one split;
   assignment depends only on group names/sizes, fractions and seed.
 - Augmentation moves image and labels together; labels are only permuted or nearest-sampled; pixels from outside
-  the image (rotation corners, padding) get label 255 = ignore, excluded from loss and metrics.
+  the image (rotation corners, padding) get label 255 = ignore, excluded from loss and metrics. With cropping,
+  free rotation rotates only a window of side >= patch x sqrt(2) and keeps its centre, so rotation corners never
+  fall inside a patch taken from a large enough image.
 - Metrics come from one confusion matrix over full images; undefined ratios are `None`, never 0 or 1.
 - Model selection uses validation only; the test split is evaluated once at the end with the best checkpoint.
 - Normalization: divide by the dtype range (uint8 /255, uint16 /65535). Recorded in config and checkpoint.

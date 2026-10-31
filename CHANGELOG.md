@@ -1,6 +1,9 @@
 # Changelog
 
 ## Unreleased (0.4.0)
+- Faster free rotation: only a window of side patch x sqrt(2) around the patch is rotated (was the whole image;
+  ~3x faster per patch on 1024 px images, no rotation corners inside patches). Changes the exact augmented
+  samples of configurations with rotate_prob > 0 compared with earlier builds.
 - Packaged Windows executable: `deploy/windows/launcher.py` + manual CI job that builds it with PyInstaller and
   checks the frozen exe trains and evaluates a model.
 - Windows SMB: fixed concurrent record creation ("Access is denied" for losers) and lock-file deletion races found

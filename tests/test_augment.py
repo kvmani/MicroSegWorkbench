@@ -90,3 +90,15 @@ def test_registered_photometric_op_is_seeded_and_cannot_touch_labels():
     finally:
         PHOTOMETRIC_OPS.pop("invert_test", None)
         PHOTOMETRIC_OPS.pop("crop_test", None)
+
+
+@pytest.mark.parametrize("seed", range(6))
+def test_windowed_rotation_on_large_image_is_aligned_and_fully_valid(seed):
+    rng = np.random.default_rng(seed)
+    labels = rng.integers(0, 3, size=(300, 260)).astype(np.uint8)
+    image = (labels.astype(np.float32) / 4.0)[:, :, None]
+    cfg = AugmentConfig(patch_size=64, rotate_prob=1.0, rotate_max_deg=45, photometric_prob=0.0)
+    img2, lab2, ops = augment(image, labels, cfg, np.random.default_rng(seed), image_resample=Image.Resampling.NEAREST)
+    assert lab2.shape == (64, 64) and any(o.startswith("rotate") and "deg" in o for o in ops)
+    assert not (lab2 == IGNORE_INDEX).any()  # window >= patch*sqrt(2): no rotation corners inside the patch
+    np.testing.assert_array_equal(img2[..., 0], lab2.astype(np.float32) / 4.0)

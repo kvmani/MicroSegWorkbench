@@ -58,9 +58,9 @@ and the highest-value remaining gaps (multi-process augmentation, CUDA package, 
 
 ## Verification
 - 2026-10-31, Linux sandbox, Python 3.13.18, torch 2.15.0 (CUDA build, no GPU present), numpy 2.5.3, Pillow 12.3,
-  PySide6 6.12 offscreen: `python -m pytest -q` -> **116 passed, 2 skipped** in ~1.5 min (the 2 skips need HydrideSegmentation);
+  PySide6 6.12 offscreen: `python -m pytest -q` -> **122 passed, 5 skipped** (2 need HydrideSegmentation, 3 need a network share) in ~1.5 min (the 2 skips need HydrideSegmentation);
   with `MSW_HYDRIDESEG_PATH=<HydrideSegmentation checkout @ main, v2.0.0>` and scipy 1.18.1 / scikit-image 0.26.0 /
-  matplotlib 3.11.2 installed -> **118 passed**.
+  matplotlib 3.11.2 installed -> **124 passed, 3 skipped**.
   - Manual smoke test: 12 synthetic 700x700 images, `images_in_memory: 3`, 128 px patches - tiled evaluation
     scored all 1,470,000 test pixels at full resolution; peak RSS ~0.8 GB; 11 s on 4 cores.
   - Post-roadmap: early stopping (forced plateau -> stops after patience, evaluates epoch-1 checkpoint); excluded
@@ -132,5 +132,6 @@ None for synthetic development. Needs from the office: a Windows workstation run
    publication: AD-9..AD-11).
 2. Office rehearsal following docs/DEPLOYMENT.md: wheelhouse build, Windows install + `python -m pytest -q`, GPU
    `standard` preset, SMB share with two workstations, VM service, a real OnlineAnnotator export; record results here.
-3. Then, by value: multi-process augmentation workers for GPU throughput, CUDA package build, ml_server
+3. Then, by value: measure GPU throughput in the office before adding multi-process augmentation (free rotation
+   was made ~3x cheaper instead: 4 ms per 256 px patch incl. blur/noise on one core), CUDA package build, ml_server
    authentication for the service.

@@ -163,10 +163,22 @@ def augment(image: np.ndarray, labels: np.ndarray, cfg: AugmentConfig, rng: np.r
     b, c, g = rng.uniform(-1.0, 1.0, size=3)
     noise_seed = int(rng.integers(0, 2**31 - 1))
 
-    if cfg.rotate_prob and u[3] < cfg.rotate_prob and angle != 0.0:
+    rotate = bool(cfg.rotate_prob) and u[3] < cfg.rotate_prob and angle != 0.0
+    if rotate and crop:
+        # Rotate only a window that contains the rotated patch (side >= patch * sqrt(2)), then take its centre:
+        # same geometry as rotating the whole image, ~20x less work on large micrographs, and no rotation
+        # corners inside the patch.
+        p = cfg.patch_size
+        window = int(np.ceil(p * np.sqrt(2.0))) + 2
+        image, labels = random_crop(image, labels, window, rng)
+        image, labels = _rotate(image, labels, angle, image_resample)
+        o = (window - p) // 2
+        image, labels = image[o:o + p, o:o + p], labels[o:o + p, o:o + p]
+        ops.append(f"rotate {angle:+.1f} deg")
+    elif rotate:
         image, labels = _rotate(image, labels, angle, image_resample)
         ops.append(f"rotate {angle:+.1f} deg")
-    if crop:
+    elif crop:
         image, labels = random_crop(image, labels, cfg.patch_size, rng)
     if u[0] < cfg.hflip:
         image, labels = image[:, ::-1], labels[:, ::-1]
