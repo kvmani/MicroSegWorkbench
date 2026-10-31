@@ -1,0 +1,30 @@
+# Python
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.venv/
+venv/
+build/
+dist/
+*.egg-info/
+# Local runtime data and secrets
+.env
+.env.*
+!.env.example
+*.sqlite
+*.sqlite3
+outputs/
+runs/
+cache/
+logs/
+local-data/
+data/private/
+*.pt
+*.pth
+*.ckpt
+*.onnx
+# IDE
+.vscode/
+.idea/
