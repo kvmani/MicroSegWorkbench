@@ -249,6 +249,115 @@ def cmd_predict(args: argparse.Namespace) -> int:
     return 0 if report["images"] else 1
 
 
+def _share(args: argparse.Namespace):
+    from .collab.settings import CollabSettings
+    from .collab.share import SharedStore
+
+    ws = _ws(args)
+    settings = CollabSettings.load(ws)
+    path = getattr(args, "share", None) or settings.share_path
+    if not path:
+        raise SystemExit("No shared folder configured. Run: msw share config --path <shared folder>")
+    return ws, settings, SharedStore.open(Path(path))
+
+
+def cmd_share(args: argparse.Namespace) -> int:
+    from .collab.settings import CollabSettings
+    from .collab.share import SharedStore, ShareError
+    from .training.runs import RunDir
+
+    action = args.share_command
+    try:
+        if action == "init":
+            store = SharedStore.create(Path(args.path))
+            print(f"Shared folder ready: {store.root}")
+            return 0
+        if action == "config":
+            ws = _ws(args)
+            settings = CollabSettings.load(ws)
+            for key in ("path", "user", "service", "token"):
+                value = getattr(args, key)
+                if value is not None:
+                    setattr(settings, {"path": "share_path", "service": "service_url", "token": "service_token"}
+                            .get(key, key), value)
+            if settings.share_path:
+                SharedStore.open(Path(settings.share_path))  # validate before saving
+            settings.save(ws)
+            print(f"Shared folder: {settings.share_path or '-'}  user: {settings.user_name()}  "
+                  f"service: {settings.service_url or '-'}")
+            return 0
+        ws, settings, store = _share(args)
+        user = settings.user_name()
+        progress = None if args.quiet else (lambda m: print(m, flush=True))
+        if action == "status":
+            print(f"Shared folder {store.root}")
+            print("Datasets:")
+            for d in store.list_datasets():
+                local = "local copy" if (ws.datasets_dir / d["dataset_id"]).exists() else "not downloaded"
+                print(f"  {d['dataset_id']}  {d['split_counts']}  by {d['published_by']} {d['published_at'][:10]}"
+                      f"  ({local})")
+            print("Runs:")
+            for r in store.list_runs():
+                print(f"  {r['run_id']}  [{r['review'].upper()}]  dataset {r['dataset_id']}  test mIoU "
+                      f"{_fmt(r['summary']['mean_iou'])}  by {r['published_by']}")
+            return 0
+        if action == "publish-dataset":
+            version = DatasetVersion.open(ws.datasets_dir / args.dataset)
+            rec = store.publish_dataset(version, user=user, progress=progress)
+            print(f"Published dataset {rec['dataset_id']} ({rec['bytes']:,} bytes)")
+        elif action == "publish-run":
+            rec = store.publish_run(RunDir(ws.runs_dir / args.run), tuple(args.checkpoints.split(",")), user=user,
+                                    progress=progress)
+            print(f"Published run {rec['run_id']} (unreviewed until someone approves it)")
+        elif action == "pull-dataset":
+            version = store.pull_dataset(args.dataset, ws, progress=progress)
+            print(f"Dataset available locally: {version.root}")
+        elif action == "pull-run":
+            run = store.pull_run(args.run, ws, progress=progress)
+            print(f"Run available locally: {run.root}")
+        elif action == "review":
+            review = store.add_review(args.run, args.decision, args.comment or "", reviewer=user)
+            print(f"Recorded: {review['decision']} by {review['reviewer']}")
+        elif action == "check":
+            problems = store.check()
+            for p in problems:
+                print(f"PROBLEM: {p}")
+            print("Share is consistent." if not problems else f"{len(problems)} problem(s) found.")
+            return 0 if not problems else 1
+        elif action == "sync":
+            if not settings.service_url:
+                print("No metadata service configured.", file=sys.stderr)
+                return 1
+            from .collab.client import ServiceClient
+
+            n = ServiceClient(settings.service_url, settings.service_token).sync_from_share(store)
+            print(f"Sent {n} record(s) to {settings.service_url}.")
+            return 0
+        elif action == "gc":
+            removed = store.blobs.remove_stale_partials(args.days * 86400)
+            print(f"Removed {len(removed)} stale partial upload(s).")
+        _register_with_service(settings, store, action, args)
+    except ShareError as exc:
+        print(f"Error: {exc}", file=sys.stderr)
+        return 1
+    return 0
+
+
+def _register_with_service(settings, store, action: str, args: argparse.Namespace) -> None:
+    """Best-effort index update in the optional metadata service (the share stays authoritative)."""
+    if not settings.service_url or action not in ("publish-dataset", "publish-run", "review"):
+        return
+    from .collab.client import ServiceClient, ServiceError
+
+    client = ServiceClient(settings.service_url, settings.service_token)
+    try:
+        client.sync_from_share(store)
+        print(f"Metadata service updated ({settings.service_url}).")
+    except ServiceError as exc:
+        print(f"Note: metadata service not updated ({exc}); the shared folder is up to date and the service can be "
+              "re-synchronised later with 'msw share sync'.")
+
+
 def cmd_quickstart(args: argparse.Namespace) -> int:
     ws = _ws(args)
     folder = ws.demo_dir
@@ -350,6 +459,37 @@ def build_parser() -> argparse.ArgumentParser:
     s = sub.add_parser("evaluate", help="(re)evaluate a run's best checkpoint")
     s.add_argument("run")
     s.set_defaults(func=cmd_evaluate)
+
+    s = sub.add_parser("share", help="shared office folder: publish, download, review")
+    s.add_argument("--share", help="shared folder path (default: from workspace settings)")
+    s.add_argument("--quiet", action="store_true")
+    ss = s.add_subparsers(dest="share_command", required=True)
+    x = ss.add_parser("init", help="prepare an empty shared folder")
+    x.add_argument("path")
+    x = ss.add_parser("config", help="set shared folder, user name and optional service")
+    x.add_argument("--path")
+    x.add_argument("--user")
+    x.add_argument("--service")
+    x.add_argument("--token")
+    ss.add_parser("status", help="list shared datasets and runs")
+    x = ss.add_parser("publish-dataset")
+    x.add_argument("dataset")
+    x = ss.add_parser("publish-run")
+    x.add_argument("run")
+    x.add_argument("--checkpoints", default="best", help="comma list: best,last")
+    x = ss.add_parser("pull-dataset")
+    x.add_argument("dataset")
+    x = ss.add_parser("pull-run")
+    x.add_argument("run")
+    x = ss.add_parser("review")
+    x.add_argument("run")
+    x.add_argument("--decision", required=True, choices=("approved", "rejected", "needs_changes"))
+    x.add_argument("--comment")
+    ss.add_parser("check", help="verify every published file")
+    x = ss.add_parser("gc", help="remove stale partial uploads")
+    x.add_argument("--days", type=float, default=7)
+    ss.add_parser("sync", help="re-send all shared records to the metadata service")
+    s.set_defaults(func=cmd_share)
 
     sub.add_parser("gui", help="open the desktop application").set_defaults(func=cmd_gui)
     return p

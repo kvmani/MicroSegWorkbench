@@ -23,6 +23,7 @@ all = ["torch>=2.1", "psutil>=5.9", "PySide6>=6.5", "pytest>=7"]
 
 [project.scripts]
 msw = "microseg_workbench.cli:main"
+msw-service = "microseg_workbench.collab.server:main"
 
 [project.gui-scripts]
 msw-gui = "microseg_workbench.gui.app:main"
