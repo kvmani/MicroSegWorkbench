@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import json
 import os
+import platform
 import uuid
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -24,6 +25,24 @@ from typing import Any
 from ..core.atomic import read_json, write_json_atomic
 
 TERMINAL_STATES = ("completed", "failed", "cancelled")
+ACTIVE_STATES = ("starting", "running", "evaluating")
+
+
+def pid_alive(pid: int) -> bool:
+    try:
+        import psutil
+
+        return psutil.pid_exists(pid)
+    except ImportError:
+        if os.name == "nt":
+            return True  # cannot tell without psutil; assume alive rather than mislabel
+        try:
+            os.kill(pid, 0)
+        except ProcessLookupError:
+            return False
+        except PermissionError:
+            return True
+        return True
 
 
 def utc_now() -> str:
@@ -79,9 +98,7 @@ class RunDir:
     def append_event(self, event: dict[str, Any]) -> None:
         line = json.dumps(event, sort_keys=True) + "\n"
         with open(self.events, "a", encoding="utf-8") as fh:
-            fh.write(line)
-            fh.flush()
-            os.fsync(fh.fileno())
+            fh.write(line)  # readers ignore an unterminated last line, so no fsync per event
 
     def read_events(self) -> list[dict[str, Any]]:
         if not self.events.exists():
@@ -95,7 +112,29 @@ class RunDir:
 
     def write_status(self, **status: Any) -> None:
         status["updated_at"] = utc_now()
+        status.setdefault("pid", os.getpid())
+        status.setdefault("host", platform.node())
         write_json_atomic(self.status_json, status)
+
+    def state(self) -> str:
+        """Status state, reporting ``interrupted`` when the training process on this computer has died."""
+        st = self.status()
+        state = st.get("state", "unknown")
+        if state in ACTIVE_STATES and st.get("host") == platform.node() and st.get("pid"):
+            if not pid_alive(int(st["pid"])):
+                return "interrupted"
+        return state
+
+    def resumable(self) -> bool:
+        return self.state() in ("cancelled", "failed", "interrupted") and (self.checkpoints / "last.pt").exists()
+
+    def epoch_history(self) -> list[dict[str, Any]]:
+        """One epoch event per epoch (the latest, so epochs repeated after a resume are not double counted)."""
+        by_epoch: dict[int, dict[str, Any]] = {}
+        for e in self.read_events():
+            if e["type"] == "epoch":
+                by_epoch[e["epoch"]] = e
+        return [by_epoch[k] for k in sorted(by_epoch)]
 
     def status(self) -> dict[str, Any]:
         try:

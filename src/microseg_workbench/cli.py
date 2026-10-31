@@ -98,11 +98,18 @@ def cmd_preview_aug(args: argparse.Namespace) -> int:
 
 
 def cmd_devices(args: argparse.Namespace) -> int:
-    from .training.device import choose_device, detect_devices
+    from .training.device import choose_device, cuda_diagnosis, detect_devices
+    from .training.monitor import sample_system
 
     for d in detect_devices():
-        print(d.label())
+        print(d.label() + (f"  compute capability {d.compute_capability}" if d.compute_capability else ""))
+    print(cuda_diagnosis())
     print(choose_device("auto")[2])
+    snap = sample_system()
+    for g in snap.get("gpus", []):
+        tag = "  [SIMULATED]" if g["simulated"] else ""
+        print(f"GPU {g['index']} {g['name']}: utilisation {g['utilization_percent']}%, memory "
+              f"{g['memory_used_mb']}/{g['memory_total_mb']} MB ({g['source']}){tag}")
     return 0
 
 
@@ -114,14 +121,18 @@ def _train_config(args: argparse.Namespace):
         payload["dataset_id"] = args.dataset
         return TrainConfig.from_dict(payload)
     overrides = {k: getattr(args, k) for k in ("epochs", "batch_size", "learning_rate", "seed", "device",
-                                               "num_threads") if getattr(args, k) is not None}
+                                               "num_threads", "mixed_precision") if getattr(args, k) is not None}
     return preset_config(args.preset, args.dataset, **overrides)
 
 
 def _print_event(event: dict[str, Any]) -> None:
     kind = event["type"]
     if kind == "start":
-        print(f"{event['note']}  ({event['parameters']:,} parameters, {event['steps_per_epoch']} steps/epoch)")
+        amp = ", mixed precision" if event.get("mixed_precision") else ""
+        print(f"{event['note']}  ({event['parameters']:,} parameters, batch size {event.get('batch_size')}{amp}, "
+              f"{event['steps_per_epoch']} steps/epoch)")
+    elif kind == "resume":
+        print(f"Resuming after epoch {event['from_epoch']}. {event['note']}")
     elif kind == "epoch":
         res = event["resources"]
         mem = f"  RAM {res['process_rss_mb']} MB" if "process_rss_mb" in res else ""
@@ -149,6 +160,21 @@ def cmd_train(args: argparse.Namespace) -> int:
     return 0 if run.status().get("state") in ("completed", "cancelled") else 1
 
 
+def cmd_resume(args: argparse.Namespace) -> int:
+    from .training.trainer import ResumeError, resume_training
+
+    try:
+        run = resume_training(_ws(args), args.run, on_event=None if args.quiet else _print_event)
+    except ResumeError as exc:
+        print(f"Cannot resume: {exc}", file=sys.stderr)
+        return 1
+    except Exception as exc:
+        print(f"Training failed: {exc}", file=sys.stderr)
+        return 1
+    print(f"Run directory: {run.root}  state: {run.state()}")
+    return 0 if run.state() in ("completed", "cancelled") else 1
+
+
 def cmd_evaluate(args: argparse.Namespace) -> int:
     from .training.runs import RunDir
     from .training.trainer import evaluate_run
@@ -170,7 +196,9 @@ def cmd_runs(args: argparse.Namespace) -> int:
 
     for run in list_runs(_ws(args).runs_dir):
         st = run.status()
-        print(f"{run.run_id}  {st.get('state')}  {run.info().get('dataset', {}).get('dataset_id')}  {st.get('message', '')}")
+        resumable = "  (resumable: msw resume " + run.run_id + ")" if run.resumable() else ""
+        print(f"{run.run_id}  {run.state()}  {run.info().get('dataset', {}).get('dataset_id')}  "
+              f"{st.get('message', '')}{resumable}")
     return 0
 
 
@@ -244,7 +272,8 @@ def build_parser() -> argparse.ArgumentParser:
         s.add_argument("--preset", default="quick_cpu")
         s.add_argument("--config", help="JSON training config (overrides preset)")
         s.add_argument("--epochs", type=int)
-        s.add_argument("--batch-size", type=int)
+        s.add_argument("--batch-size", type=int, help="0 = automatic (fits GPU memory)")
+        s.add_argument("--mixed-precision", choices=("auto", "on", "off"))
         s.add_argument("--learning-rate", type=float)
         s.add_argument("--seed", type=int)
         s.add_argument("--device", choices=("auto", "cpu", "cuda"))
@@ -252,6 +281,11 @@ def build_parser() -> argparse.ArgumentParser:
         s.add_argument("--run-id")
         s.add_argument("--quiet", action="store_true")
         s.set_defaults(func=func, config=None)
+
+    s = sub.add_parser("resume", help="continue a cancelled, failed or interrupted run")
+    s.add_argument("run")
+    s.add_argument("--quiet", action="store_true")
+    s.set_defaults(func=cmd_resume)
 
     s = sub.add_parser("evaluate", help="(re)evaluate a run's best checkpoint")
     s.add_argument("run")

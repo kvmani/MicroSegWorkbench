@@ -78,7 +78,7 @@ def generate_sample(spec: SyntheticSpec, specimen: int, index: int) -> tuple[np.
     if spec.with_pores:
         for _ in range(int(rng.integers(1, 4))):
             cy, cx = rng.uniform(0.1, 0.9, size=2) * size
-            radius = rng.uniform(2.0, 4.0)
+            radius = rng.uniform(3.0, 5.5)
             mask[np.hypot(yy - cy, xx - cx) <= radius] = 2
 
     texture = _smooth_noise(rng, size, 6) * 30.0 - 15.0

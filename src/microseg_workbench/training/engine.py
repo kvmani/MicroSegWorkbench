@@ -19,6 +19,32 @@ from .model import ModelConfig, UNet
 CHECKPOINT_SCHEMA = "microseg-workbench.checkpoint/1"
 
 
+LOSSES = ("cross_entropy", "cross_entropy_dice")
+
+
+def soft_dice_loss(logits: torch.Tensor, target: torch.Tensor) -> torch.Tensor:
+    """1 - mean soft Dice over classes present in the batch (truth or prediction); ignore pixels excluded."""
+    num_classes = logits.shape[1]
+    valid = (target != IGNORE_INDEX).unsqueeze(1).to(logits.dtype)
+    probs = logits.float().softmax(1) * valid
+    onehot = F.one_hot(target.clamp(max=num_classes - 1), num_classes).permute(0, 3, 1, 2).to(probs.dtype) * valid
+    dims = (0, 2, 3)
+    inter = (probs * onehot).sum(dims)
+    denom = probs.sum(dims) + onehot.sum(dims)
+    present = denom > 0
+    dice = (2 * inter + 1.0) / (denom + 1.0)
+    return 1.0 - dice[present].mean()
+
+
+def segmentation_loss(logits: torch.Tensor, target: torch.Tensor, kind: str) -> torch.Tensor:
+    ce = F.cross_entropy(logits, target, ignore_index=IGNORE_INDEX)
+    if kind == "cross_entropy":
+        return ce
+    if kind == "cross_entropy_dice":
+        return ce + soft_dice_loss(logits, target)
+    raise ValueError(f"Unknown loss {kind!r}; choose one of {LOSSES}.")
+
+
 @torch.no_grad()
 def predict_logits(model: UNet, image: np.ndarray, device: torch.device) -> torch.Tensor:
     """Full-image inference on float32 (H, W, C); reflect-pads to the U-Net multiple and crops back."""
