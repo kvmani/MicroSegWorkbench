@@ -8,7 +8,7 @@ SMB share, Ubuntu VM), an independent review (REVIEW.md), and a few deliberately
 
 ## Current objective
 Hand over for office rehearsal and independent review. Implementation agents should next address review findings
-and the highest-value gaps (streaming data loader for large datasets, packaged Windows build, share GC).
+and the highest-value remaining gaps (packaged Windows build, multi-process augmentation, service authentication).
 
 ## Decisions
 - New independent repository; reference rather than modify HydrideSegmentation, OnlineAnnotator, ml_server and ml_server_deploy.
@@ -112,4 +112,5 @@ None for synthetic development. Needs from the office: a Windows workstation run
    publication: AD-9..AD-11).
 2. Office rehearsal following docs/DEPLOYMENT.md: wheelhouse build, Windows install + `python -m pytest -q`, GPU
    `standard` preset, SMB share with two workstations, VM service, a real OnlineAnnotator export; record results here.
-3. Then, by value: multi-process augmentation workers for GPU throughput, share garbage collection of unreferenced blobs, packaged Windows build, ml_server authentication for the service.
+3. Then, by value: multi-process augmentation workers for GPU throughput, packaged Windows build, ml_server
+   authentication for the service.
