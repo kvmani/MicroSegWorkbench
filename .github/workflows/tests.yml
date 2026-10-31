@@ -77,3 +77,42 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw "quickstart failed" }
           $desktop = [Environment]::GetFolderPath("Desktop")
           if (-not (Test-Path (Join-Path $desktop "MicroSegWorkbench.lnk"))) { throw "shortcut missing" }
+
+  windows-package:
+    name: Windows packaged executable (manual)
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: windows-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install
+        shell: bash
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install torch --index-url https://download.pytorch.org/whl/cpu
+          python -m pip install ".[all]" pyinstaller
+      - name: Build with PyInstaller
+        shell: pwsh
+        run: |
+          pyinstaller --noconfirm --windowed --name MicroSegWorkbench `
+            --collect-submodules microseg_workbench `
+            deploy/windows/launcher.py
+      - name: Frozen executable trains via its --cli mode
+        shell: pwsh
+        run: |
+          $exe = "dist/MicroSegWorkbench/MicroSegWorkbench.exe"
+          $ws = Join-Path $env:RUNNER_TEMP "frozen-ws"
+          $p = Start-Process -FilePath $exe -ArgumentList @("--cli", "--workspace", $ws, "quickstart", "--quiet") -Wait -PassThru
+          if ($p.ExitCode -ne 0) { throw "frozen quickstart exited with $($p.ExitCode)" }
+          $status = Get-ChildItem (Join-Path $ws "runs") -Directory | ForEach-Object { Get-Content (Join-Path $_.FullName "status.json") | ConvertFrom-Json }
+          if ($status.state -ne "completed") { throw "run state: $($status.state)" }
+          Write-Host "Frozen build trained and evaluated a model: $($status.message)"
+      - name: Upload package
+        uses: actions/upload-artifact@v4
+        with:
+          name: MicroSegWorkbench-windows-cpu
+          path: dist/MicroSegWorkbench
+          retention-days: 7
