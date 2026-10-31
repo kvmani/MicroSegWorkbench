@@ -163,3 +163,10 @@ patches shuffled within a block (each image decoded once per epoch). The order d
 never on the machine - and N is part of the recorded config, so resume and re-runs are exact. Validation keeps only
 the fixed-sample predictions; test evaluation streams one image at a time and writes overlays as it goes. Batches
 are prepared one to two steps ahead in a background thread (`prefetch`); errors propagate to the trainer.
+
+### AD-16 Excluded borders and early stopping
+`Preprocess.exclude_border` (top, bottom, left, right; original pixels) is applied before resizing in training,
+evaluation and prediction. Excluded pixels are never trained on or scored. Evaluation and prediction masks cover the
+analysed region only, with `analysed_region` recorded, because filling the border with background would bias
+downstream area fractions. `early_stopping_patience` stops after N epochs without validation improvement (needs a
+validation split); the best checkpoint is evaluated as usual and `status.json` records `stopped_early`.

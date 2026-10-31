@@ -1,6 +1,9 @@
 # Changelog
 
 ## Unreleased (0.4.0)
+- Exclude-border preprocessing (e.g. SEM data bars): never trained on or scored; masks cover the analysed region.
+- Early stopping (`--early-stopping N`, Training page).
+- Data page shows class balance and warns about rare classes (< 2 % of pixels).
 - Results page shows the shared review decision (approved / changes requested / rejected) when connected.
 - `msw share gc --unreferenced [--apply]`: list or delete unreferenced shared files older than a grace period.
 - Tests can no longer touch the real default workspace.

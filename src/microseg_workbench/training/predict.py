@@ -59,15 +59,21 @@ def predict_folder(run: RunDir, input_folder: Path, output_folder: Path, checkpo
                 errors.append({"file": path.name, "error": f"has {loaded.channels} channel(s); the model expects "
                                                            f"{model.cfg.in_channels}"})
                 continue
-            image = to_unit_float(loaded.array)
+            try:
+                region = prep.analysed_region(*loaded.array.shape[:2])
+            except ValueError as exc:
+                errors.append({"file": path.name, "error": str(exc)})
+                continue
+            image = prep.crop(to_unit_float(loaded.array))
             labels = predict_labels(model, image, torch_device, prep)
             write_bytes_atomic(stage / f"{path.stem}_pred_mask.png",
                                encode_png(values[labels]))
             write_bytes_atomic(stage / f"{path.stem}_overlay.png",
                                encode_png(tile_grid([to_display_rgb(image), overlay(image, labels, class_map)], 2)))
             counts = np.bincount(labels.ravel(), minlength=class_map.num_classes)
-            records.append({"file": path.name, "image_sha256": sha256_file(path), "height": int(labels.shape[0]),
-                            "width": int(labels.shape[1]),
+            records.append({"file": path.name, "image_sha256": sha256_file(path),
+                            "image_height": int(loaded.array.shape[0]), "image_width": int(loaded.array.shape[1]),
+                            "analysed_region": region, "height": int(labels.shape[0]), "width": int(labels.shape[1]),
                             "class_fractions": {c.name: round(float(counts[k]) / labels.size, 6)
                                                 for k, c in enumerate(class_map.classes)}})
         report = {

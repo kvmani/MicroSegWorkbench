@@ -223,7 +223,18 @@ class DataPage(QWidget):
         assert report is not None
         classes = ""
         if report.class_map:
-            classes = "<br>Classes: " + ", ".join(f"{c.value} = {c.name}" for c in report.class_map.classes)
+            totals = {c.value: sum(p.class_pixels.get(c.value, 0) for p in report.pairs if p.ok)
+                      for c in report.class_map.classes}
+            images_with = {c.value: sum(1 for p in report.pairs if p.ok and p.class_pixels.get(c.value, 0))
+                           for c in report.class_map.classes}
+            grand = sum(totals.values()) or 1
+            classes = "<br>Classes (share of all pixels, images containing it): " + "; ".join(
+                f"{c.value} = {c.name} {100 * totals[c.value] / grand:.2f}% ({images_with[c.value]})"
+                for c in report.class_map.classes)
+            rare = [c.name for c in report.class_map.classes[1:] if 0 < totals[c.value] / grand < 0.02]
+            if rare:
+                classes += (f"<br><span style='color:#8a5a00'>Rare classes ({', '.join(rare)}) cover under 2% of "
+                            "pixels: prefer the Cross-entropy + Dice loss and check their per-class scores.</span>")
         verdict = ("<span style='color:#1a7f37'><b>Ready.</b></span>" if report.ok else
                    "<span style='color:#b42318'><b>Fix the errors below before creating a dataset.</b></span>")
         self.summary.setText(f"{verdict} {report.summary()}{classes}")

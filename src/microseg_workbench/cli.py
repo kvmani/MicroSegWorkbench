@@ -168,7 +168,7 @@ def _train_config(args: argparse.Namespace):
         payload["dataset_id"] = args.dataset
         return TrainConfig.from_dict(payload)
     overrides = {k: getattr(args, k) for k in ("epochs", "batch_size", "learning_rate", "seed", "device",
-                                               "num_threads", "mixed_precision") if getattr(args, k) is not None}
+                                               "num_threads", "mixed_precision", "early_stopping_patience") if getattr(args, k) is not None}
     return preset_config(args.preset, args.dataset, **overrides)
 
 
@@ -491,6 +491,8 @@ def build_parser() -> argparse.ArgumentParser:
         s.add_argument("--epochs", type=int)
         s.add_argument("--batch-size", type=int, help="0 = automatic (fits GPU memory)")
         s.add_argument("--mixed-precision", choices=("auto", "on", "off"))
+        s.add_argument("--early-stopping", dest="early_stopping_patience", type=int,
+                       help="stop after N epochs without validation improvement")
         s.add_argument("--learning-rate", type=float)
         s.add_argument("--seed", type=int)
         s.add_argument("--device", choices=("auto", "cpu", "cuda"))

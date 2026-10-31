@@ -158,3 +158,24 @@ def test_lr_schedule_is_defined_for_any_length():
         assert all(0.0 < v <= 1.0 for v in values)
     f = lr_schedule(100)
     assert f(9) == pytest.approx(1.0) and f(99) < 0.1
+
+
+def test_early_stopping_stops_and_still_evaluates(ws_version, monkeypatch):
+    import json
+
+    from microseg_workbench.training import trainer as trainer_mod
+
+    ws, version = ws_version
+    real_evaluate = trainer_mod.evaluate
+
+    def flat_after_first(model, samples, device, names, prep=None, keep=None, on_prediction=None):
+        metrics, loss, preds = real_evaluate(model, samples, device, names, prep, keep, on_prediction)
+        if metrics is not None and getattr(samples, "records", None) and samples.records[0]["split"] == "val":
+            metrics = dict(metrics, mean_iou_foreground=0.5)  # validation never improves after epoch 1
+        return metrics, loss, preds
+
+    monkeypatch.setattr(trainer_mod, "evaluate", flat_after_first)
+    run = run_training(tiny(version.dataset_id, epochs=10, early_stopping_patience=2), ws)
+    assert [e["epoch"] for e in run.epoch_history()] == [1, 2, 3]
+    assert run.status()["stopped_early"] == 3 and "Stopped early" in run.status()["message"]
+    assert json.loads((run.evaluation / "evaluation.json").read_text())["checkpoint_epoch"] == 1

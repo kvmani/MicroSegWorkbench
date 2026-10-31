@@ -113,9 +113,10 @@ def evaluate(model: UNet, samples: Iterable[Sample], device: torch.device, class
              prep: Preprocess | None = None, keep: set[str] | None = None,
              on_prediction: Callable[[Sample, np.ndarray], None] | None = None,
              ) -> tuple[dict[str, Any], float | None, dict[str, np.ndarray]]:
-    """Metrics, mean cross-entropy and predictions over full images at original resolution.
+    """Metrics, mean cross-entropy and predictions over the analysed region of each image, at original resolution.
 
-    Images are processed one at a time. ``keep`` limits which predictions are returned (None = all);
+    The excluded border (``prep.exclude_border``) is removed first and never scored; returned predictions and
+    ``on_prediction`` receive the cropped sample and prediction. Images are processed one at a time. ``keep`` limits which predictions are returned (None = all);
     ``on_prediction`` receives every (sample, prediction) as it is produced.
     """
     prep = prep or Preprocess()
@@ -123,6 +124,7 @@ def evaluate(model: UNet, samples: Iterable[Sample], device: torch.device, class
     cm = np.zeros((k, k), dtype=np.int64)
     losses, preds = [], {}
     for s in samples:
+        s = Sample(s.stem, prep.crop(s.image), prep.crop(s.labels), s.stats)
         probs = segment_probabilities(model, s.image, device, prep)
         target = torch.from_numpy(s.labels.astype(np.int64))
         if (target != IGNORE_INDEX).any():

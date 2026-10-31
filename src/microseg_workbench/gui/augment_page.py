@@ -63,7 +63,17 @@ class AugmentPage(QWidget):
                   "per_image_standardize": "Per-image standardization"}
         for key in NORMALIZATIONS:
             self.normalization.addItem(labels[key], key)
+        self.border: list[QSpinBox] = []
+        border_row = QHBoxLayout()
+        for label in ("top", "bottom", "left", "right"):
+            b = QSpinBox()
+            b.setRange(0, 10000)
+            b.setToolTip(f"Pixels at the {label} edge that are never trained on or scored (e.g. an SEM data bar).")
+            border_row.addWidget(QLabel(label))
+            border_row.addWidget(b)
+            self.border.append(b)
         prep_form.addRow("Resize factor:", self.resize)
+        prep_form.addRow("Exclude border (px):", border_row)
         prep_form.addRow("Intensity normalization:", self.normalization)
         box = QGroupBox("Augmentation settings")
         form = QFormLayout(box)
@@ -145,7 +155,8 @@ class AugmentPage(QWidget):
             w.setValue(getattr(defaults, name))
 
     def preprocess(self) -> Preprocess:
-        return Preprocess(resize_factor=round(self.resize.value(), 4), normalization=self.normalization.currentData())
+        return Preprocess(resize_factor=round(self.resize.value(), 4), normalization=self.normalization.currentData(),
+                          exclude_border=tuple(b.value() for b in self.border))
 
     def config(self) -> AugmentConfig:
         """Current settings; raises AugmentConfigError with a readable message if invalid."""
@@ -165,6 +176,11 @@ class AugmentPage(QWidget):
         sample = next(s for s in version.samples() if s["stem"] == self.sample.currentData())
         image = to_unit_float(load_image(version.image_path(sample)).array)
         labels = version.class_map.channel_lut()[load_mask_values(version.mask_path(sample))]
+        try:
+            image, labels = prep.crop(image), prep.crop(labels)
+        except PreprocessError as exc:
+            self.ctx.error(self, "Exclude border", str(exc))
+            return
         original = labels.shape
         shape = prep.scaled_shape(*original)
         image, labels = resize_image(image, shape), resize_labels(labels, shape)
@@ -172,6 +188,8 @@ class AugmentPage(QWidget):
         self.view.set_array(grid)
         size_note = (f"Resized from {original[0]}x{original[1]} to {shape[0]}x{shape[1]} px. "
                      if shape != original else "")
+        if any(prep.exclude_border):
+            size_note = f"Border excluded; analysed region {original[0]}x{original[1]} px. " + size_note
         norm_note = ("Shown before standardization (standardized values are not displayable). "
                      if prep.normalization != "dtype_range" else "")
         self.captions.setText(size_note + norm_note + "Columns: " + " | ".join(f"{i}: {', '.join(c)}" for i, c in enumerate(captions)) +

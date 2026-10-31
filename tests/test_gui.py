@@ -292,3 +292,24 @@ def test_frozen_launch_command_and_cli_dispatch(tmp_path, monkeypatch, capsys):
     prog, args = worker_command(["runs"])
     assert args == ["--cli", "runs"]
     assert main(["--cli", "--workspace", str(tmp_path / "ws"), "datasets"]) == 0
+
+
+def test_border_controls_and_class_balance(app, tmp_path):
+    from microseg_workbench.gui.app import MainWindow
+
+    win = MainWindow(Workspace(tmp_path / "ws"), interactive=False)
+    data = win.data_page
+    data.create_demo_data()
+    wait_until(app, lambda: data.report is not None and not data.busy)
+    assert "share of all pixels" in data.summary.text() and "Rare classes (pore)" in data.summary.text()
+    data.create_version()
+    wait_until(app, lambda: data.last_version_id is not None and not data.busy)
+    aug = win.augment_page
+    aug.border[1].setValue(16)
+    aug.preview()
+    assert "analysed region 80x96" in aug.captions.text()
+    assert win.train_page.build_config().exclude_border == (0, 16, 0, 0)
+    aug.border[0].setValue(90)
+    aug.preview()
+    assert "leaves only" in win.ctx.last_error
+    win.close()

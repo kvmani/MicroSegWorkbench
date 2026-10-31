@@ -43,8 +43,14 @@ def value_to_channel_lut(class_map: ClassMap) -> np.ndarray:
     return class_map.channel_lut()
 
 
+def cropped(s: Sample, prep: Preprocess) -> Sample:
+    """The analysed region of a sample (excluded border removed)."""
+    return Sample(s.stem, prep.crop(s.image), prep.crop(s.labels), s.stats)
+
+
 def to_training_sample(s: Sample, prep: Preprocess) -> Sample:
-    """Resize to model scale and record whole-image statistics for normalization."""
+    """Crop, resize to model scale and record whole-image statistics for normalization."""
+    s = cropped(s, prep)
     shape = prep.scaled_shape(*s.labels.shape)
     image = resize_image(s.image, shape)
     return Sample(s.stem, image, resize_labels(s.labels, shape), image_stats(image))
@@ -84,6 +90,7 @@ class SplitSource:
         """Memory for all samples at model scale (float32 image + uint8 labels), from the manifest only."""
         f = self.prep.resize_factor if self.prep else 1.0
         return int(sum(r["height"] * r["width"] * f * f * (4 * r["channels"] + 1) for r in self.records))
+
 
     def _load(self, i: int) -> Sample:
         r = self.records[i]

@@ -29,7 +29,9 @@ class TrainConfig:
     fixed_samples: int = 3
     normalization: str = "dtype_range"  # or per_image_standardize
     resize_factor: float = 1.0  # images (not masks' meaning) are scaled by this before the model
+    exclude_border: tuple[int, int, int, int] = (0, 0, 0, 0)  # top, bottom, left, right pixels never used
     loss: str = "cross_entropy_dice"  # cross_entropy | cross_entropy_dice (Dice helps rare classes)
+    early_stopping_patience: int = 0  # 0 = off; N = stop after N epochs without validation improvement
     images_in_memory: int = 0  # 0 = whole training split in memory; N = process the split in blocks of N images
     mixed_precision: str = "auto"  # auto = on for CUDA GPUs, off on CPU; "on" / "off" force it
     augment: AugmentConfig = field(default_factory=AugmentConfig)
@@ -48,6 +50,7 @@ class TrainConfig:
             (self.patches_per_image >= 1, "patches per image must be at least 1"),
             (self.fixed_samples >= 0, "fixed samples must not be negative"),
             (self.images_in_memory >= 0, "images in memory must be 0 (all) or more"),
+            (self.early_stopping_patience >= 0, "early stopping patience must be 0 (off) or more"),
             (self.augment.patch_size % 2 ** self.depth == 0, "patch size must be divisible by 2^depth"),
         ]
         for ok, message in checks:
@@ -59,7 +62,8 @@ class TrainConfig:
             raise TrainConfigError(str(exc)) from exc
 
     def preprocess(self) -> Preprocess:
-        return Preprocess(resize_factor=self.resize_factor, normalization=self.normalization)
+        return Preprocess(resize_factor=self.resize_factor, normalization=self.normalization,
+                          exclude_border=tuple(self.exclude_border))
 
     def to_dict(self) -> dict[str, Any]:
         out = asdict(self)
@@ -73,6 +77,8 @@ class TrainConfig:
         unknown = set(data) - known
         if unknown:
             raise TrainConfigError(f"Unknown training options: {sorted(unknown)}")
+        if isinstance(data.get("exclude_border"), list):
+            data["exclude_border"] = tuple(data["exclude_border"])
         if isinstance(data.get("augment"), dict):
             data["augment"] = AugmentConfig.from_dict(data["augment"])
         return cls(**data)

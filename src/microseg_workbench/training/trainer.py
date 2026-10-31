@@ -35,7 +35,7 @@ from ..core.render import overlay, tile_grid, to_display_rgb
 from ..core.workspace import Workspace
 from .config import TrainConfig
 from ..core.preprocess import Preprocess
-from .data import Sample, SplitSource, count_batches, iter_epoch_batches, prefetch
+from .data import Sample, SplitSource, count_batches, cropped, iter_epoch_batches, prefetch
 from .device import choose_device, cuda_diagnosis, is_out_of_memory, probe_batch_size
 from .engine import evaluate, load_checkpoint, save_checkpoint, segmentation_loss
 from .model import ModelConfig, UNet, count_parameters
@@ -213,8 +213,12 @@ def _execute(run: RunDir, cfg: TrainConfig, workspace: Workspace, on_event: Even
         if not len(train):
             raise ValueError("The training split is empty.")
         _check_memory(train, val if keep_all else None, cfg)
+        all_records = train.records + val.records + list(version.samples("test"))
+        for r in all_records:
+            prep.analysed_region(r["height"], r["width"])  # raises with a clear message if borders are too large
         too_small = [r["stem"] for r in train.records
-                     if min(prep.scaled_shape(r["height"], r["width"])) < 8]
+                     if min(prep.scaled_shape(**{k: v for k, v in prep.analysed_region(r["height"], r["width"]).items()
+                                                 if k in ("height", "width")})) < 8]
         if too_small:
             raise ValueError(f"Resize factor {prep.resize_factor} makes images too small: {too_small[:3]}")
         channels = train.channels() | val.channels() | {int(r["channels"]) for r in version.samples("test")}
@@ -288,12 +292,14 @@ def _execute(run: RunDir, cfg: TrainConfig, workspace: Workspace, on_event: Even
             }
             write_json_atomic(run.run_json, info)
             for s in fixed:
+                s = cropped(s, prep)
                 truth = tile_grid([to_display_rgb(s.image), overlay(s.image, s.labels, class_map)], columns=2)
                 write_bytes_atomic(run.samples / f"truth_{s.stem}.png", encode_png(truth))
             emit({"type": "start", "device": device_info.label(), "note": device_note, "batch_size": batch_size,
                   "mixed_precision": use_amp, "steps_per_epoch": steps_per_epoch, "epochs": total_epochs,
                   "parameters": count_parameters(model)})
 
+        stopped_early: int | None = None
         sampler = ResourceSampler(interval_s=2.0, torch_device=device).start()
         last_resource_emit = 0.0
         start = time.monotonic()
@@ -354,7 +360,7 @@ def _execute(run: RunDir, cfg: TrainConfig, workspace: Workspace, on_event: Even
                                             if len(val) else (None, None, {}))
             if fixed and fixed_source == "train":
                 _, _, preds = evaluate(model, fixed, device, class_map.names, prep)
-            sample_files = _save_fixed_samples(run, epoch, fixed, preds, class_map)
+            sample_files = _save_fixed_samples(run, epoch, [cropped(f, prep) for f in fixed], preds, class_map)
             score = (val_metrics["mean_iou_foreground"] if val_metrics and val_metrics["mean_iou_foreground"] is not None
                      else (-train_loss if train_loss is not None else None))
             improved = score is not None and (best_score is None or score > best_score)
@@ -379,13 +385,21 @@ def _execute(run: RunDir, cfg: TrainConfig, workspace: Workspace, on_event: Even
                 "best_epoch": best_epoch, "is_best": improved, "epoch_seconds": round(time.monotonic() - epoch_start, 3),
                 "sample_images": sample_files, "resources": sampler.latest(),
             })
+            patience = cfg.early_stopping_patience
+            if patience and len(val) and epoch < total_epochs and epoch - best_epoch >= patience:
+                stopped_early = epoch
+                emit({"type": "early_stop", "epoch": epoch, "best_epoch": best_epoch, "patience": patience})
+                break
         sampler.stop()
         status(state="evaluating", epoch=total_epochs, message="Evaluating best model on the test split")
         report = evaluate_run(run, workspace, device=device)
         emit({"type": "evaluation", "split": report["split"], "metrics": report["metrics"] and {
             k: report["metrics"][k] for k in ("mean_iou", "mean_iou_foreground", "pixel_accuracy")}})
-        status(state="completed", epoch=total_epochs, best_epoch=best_epoch,
-               message=f"Finished. Best epoch {best_epoch}. Results are unreviewed.")
+        early = (f" Stopped early after epoch {stopped_early}: no validation improvement for "
+                 f"{cfg.early_stopping_patience} epochs." if stopped_early else "")
+        status(state="completed", epoch=stopped_early or total_epochs, best_epoch=best_epoch,
+               stopped_early=stopped_early,
+               message=f"Finished. Best epoch {best_epoch}.{early} Results are unreviewed.")
         emit({"type": "end", "state": "completed"})
     except TrainingCancelled:
         status(state="cancelled", message="Cancelled by user. The last completed epoch's checkpoint is kept; "
@@ -436,7 +450,8 @@ def evaluate_run(run: RunDir, workspace: Workspace, device: torch.device | None 
         "loss": loss,
         "metrics": metrics,
         "preprocess": prep.to_dict(),
-        "resolution": "metrics computed at original image resolution against original masks",
+        "resolution": "metrics computed at original image resolution against original masks, excluding any "
+                      "excluded border; prediction masks cover the analysed region only",
         "overlay_layout": "image | ground truth | prediction",
         "prediction_masks": "evaluation/<stem>_pred_mask.png hold class values from the class map",
         "review_status": "unreviewed",

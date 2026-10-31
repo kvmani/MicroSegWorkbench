@@ -93,10 +93,14 @@ def analyse_run(run_root: Path, datasets_dir: Path, class_name: str = "hydride",
     dataset = DatasetVersion.open(datasets_dir / evaluation["dataset_id"])
     class_map = dataset.class_map
     value = _class_value(class_map, class_name)
+    from ..core.preprocess import Preprocess
+
+    prep = Preprocess(**{k: (tuple(v) if k == "exclude_border" else v)
+                         for k, v in (evaluation.get("preprocess") or {}).items()})
     samples = {s["stem"]: s for s in dataset.samples()}
     per_image, all_truth, all_pred = {}, [], []
     for stem in evaluation["images"]:
-        truth = load_mask_values(dataset.mask_path(samples[stem])) == value
+        truth = prep.crop(load_mask_values(dataset.mask_path(samples[stem]))) == value
         pred = np.asarray(Image.open(run_root / "evaluation" / f"{stem}_pred_mask.png")) == value
         per_image[stem] = distribution_distances(truth, pred)
         all_truth.append(truth)

@@ -65,7 +65,10 @@ the model is overfitting.</li>
 <p><i>Resize factor</i> shrinks or enlarges images before the model sees them (0.5 halves width and height). Masks are
 resized with nearest neighbour, so thin features can vanish when shrinking: check the preview. Evaluation and
 predictions are always mapped back to the original resolution and compared with the original masks.
-<i>Per-image standardization</i> removes overall brightness and contrast differences between acquisitions.</p>
+<i>Per-image standardization</i> removes overall brightness and contrast differences between acquisitions.
+<i>Exclude border</i> removes a strip at the image edges (for example an SEM information bar) before anything
+else: it is never trained on or scored, and predicted masks then cover only the analysed region (its position is
+recorded in <code>predictions.json</code>).</p>
 
 <h3>GPU training</h3>
 <ul>
@@ -83,6 +86,10 @@ from a test mode and are not real.</li>
 value for <i>Images in memory</i>; with a number set, images are processed in blocks of that size and validation
 and test images are read one at a time. The setting is saved with the run, so the same run can be reproduced
 on any computer.</p>
+
+<h3>Early stopping</h3>
+<p><i>Early stopping after N epochs</i> ends training when the validation score has not improved for N epochs.
+The best checkpoint is evaluated on the test split as usual and the run notes that it stopped early.</p>
 
 <h3>Stopping and resuming</h3>
 <p>A cancelled run, a failed run or a run whose computer crashed keeps the checkpoint of its last completed epoch.
