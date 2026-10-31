@@ -1,6 +1,8 @@
 # Changelog
 
 ## Unreleased (0.4.0)
+- Self-contained HTML run report (`msw report RUN`, Results page *Export report*): review status, per-class test
+  scores, inline SVG curves, test overlays, settings and provenance; no scripts or external resources.
 - Faster free rotation: only a window of side patch x sqrt(2) around the patch is rotated (was the whole image;
   ~3x faster per patch on 1024 px images, no rotation corners inside patches). Changes the exact augmented
   samples of configurations with rotate_prob > 0 compared with earlier builds.

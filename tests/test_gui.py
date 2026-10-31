@@ -80,6 +80,8 @@ def test_full_workflow(app, tmp_path):
     assert res.metrics.rowCount() == 3
     assert res.history.rowCount() == 3
     assert res.overlay.has_image()
+    res.export_report()
+    assert res.last_report is not None and "UNREVIEWED" in res.last_report.read_text(encoding="utf-8")
     win.close()
 
 

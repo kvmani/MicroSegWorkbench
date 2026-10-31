@@ -119,3 +119,15 @@ def test_cli_repeat_seeds(trained, tmp_path, capsys):
                  "--quiet"]) == 0
     out = capsys.readouterr().out
     assert "Over 3 seeds" in out and "+/-" in out
+
+
+def test_html_report_is_self_contained(trained, tmp_path):
+    from microseg_workbench.training.report import write_report
+
+    _, ws, (r1, _, _) = trained
+    path = write_report(r1)
+    page = path.read_text(encoding="utf-8")
+    assert "<script" not in page and "http://" not in page and "https://" not in page
+    assert "data:image/png;base64," in page and "<svg" in page
+    assert "Review status: unreviewed" in page and r1.info()["dataset"]["dataset_id"] in page
+    assert main(["--workspace", str(ws.root), "report", r1.run_id]) == 0

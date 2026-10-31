@@ -46,6 +46,11 @@ class ResultsPage(QWidget):
         self.resume_btn = QPushButton("Resume training")
         self.resume_btn.setToolTip("Continue a cancelled, failed or interrupted run from its last completed epoch.")
         self.resume_btn.clicked.connect(self._resume)
+        self.report_btn = QPushButton("Export report")
+        self.report_btn.setToolTip("Write a self-contained HTML report (settings, scores, curves, overlays, provenance) "
+                                   "that can be emailed or printed.")
+        self.report_btn.clicked.connect(self.export_report)
+        self.last_report: Path | None = None
         self.predict_btn = QPushButton("Segment new images...")
         self.predict_btn.setToolTip("Apply this run's best model to a folder of new micrographs.")
         self.predict_btn.clicked.connect(self._predict_dialog)
@@ -111,6 +116,7 @@ class ResultsPage(QWidget):
         row2.addWidget(self.resume_btn)
         row2.addWidget(self.predict_btn)
         lv.addLayout(row2)
+        lv.addWidget(self.report_btn)
         right = QWidget()
         rv = QVBoxLayout(right)
         rv.setContentsMargins(0, 0, 0, 0)
@@ -202,6 +208,22 @@ class ResultsPage(QWidget):
             for col, v in enumerate([str(e["epoch"]), _f(e["train_loss"]), _f(e["val_loss"]),
                                      _f(e["val_mean_iou_foreground"])]):
                 self.history.setItem(r, col, QTableWidgetItem(v))
+
+    def export_report(self) -> None:
+        import re
+
+        from ..training.report import write_report
+
+        run = self.selected_run()
+        if run is None or not (run.evaluation / "evaluation.json").exists():
+            self.ctx.error(self, "Export report", "Select a completed run first.")
+            return
+        review = re.sub("<[^>]+>", "", self._review_banner(run)).replace("&#9888;", "").replace("&#10003;", "") \
+            .replace("&#10007;", "").strip()
+        self.last_report = write_report(run, review or "unreviewed")
+        self.ctx.status_message.emit(f"Report written to {self.last_report}")
+        if self.ctx.interactive:
+            QDesktopServices.openUrl(QUrl.fromLocalFile(str(self.last_report)))
 
     def _review_banner(self, run: RunDir) -> str:
         """Review status from the shared folder when connected; otherwise (or if unpublished) UNREVIEWED."""

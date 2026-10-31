@@ -100,6 +100,11 @@ The best checkpoint is evaluated on the test split as usual and the run notes th
 <p>A cancelled run, a failed run or a run whose computer crashed keeps the checkpoint of its last completed epoch.
 Select it in <b>4 Results</b> and press <i>Resume training</i>; it continues exactly where it stopped.</p>
 
+<h3>Sharing a result as a report</h3>
+<p>In <b>4 Results</b>, <i>Export report</i> writes <code>evaluation/report.html</code>: one self-contained page with
+the review status, test scores per class, training curves, test overlays, all settings and provenance. It opens
+in any browser without network access and can be emailed or printed.</p>
+
 <h3>Comparing runs</h3>
 <p><b>5 Compare</b> shows ticked runs side by side: scores, settings that differ, validation curves and the same
 test image predicted by each run. Only runs on the same dataset version share a test set; otherwise a warning

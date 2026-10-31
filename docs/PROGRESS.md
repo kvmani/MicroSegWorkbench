@@ -52,15 +52,15 @@ and the highest-value remaining gaps (multi-process augmentation, CUDA package, 
 - Post-roadmap hardening: bounded-memory data loading (AD-15), early stopping and excluded borders (AD-16),
   shared review status on Results, share GC, class-balance summary, hermetic tests, seed-variability runs and
   summary (motivated by the observed seed sensitivity of rare classes), capped display previews, blur and
-  augmentation plugins (AD-17).
+  augmentation plugins (AD-17), faster windowed rotation, HTML run reports.
 - Phase 4: OnlineAnnotator import (CLI + Data page, annotator splits), HydrideSegmentation adapter (CLI + Results
   tab), deployment kit (`deploy/`, docs/DEPLOYMENT.md), registry page, frozen-build launcher, version 0.4.0.
 
 ## Verification
 - 2026-10-31, Linux sandbox, Python 3.13.18, torch 2.15.0 (CUDA build, no GPU present), numpy 2.5.3, Pillow 12.3,
-  PySide6 6.12 offscreen: `python -m pytest -q` -> **122 passed, 5 skipped** (2 need HydrideSegmentation, 3 need a network share) in ~1.5 min (the 2 skips need HydrideSegmentation);
+  PySide6 6.12 offscreen: `python -m pytest -q` -> **123 passed, 5 skipped** (2 need HydrideSegmentation, 3 need a network share) in ~1.7 min;
   with `MSW_HYDRIDESEG_PATH=<HydrideSegmentation checkout @ main, v2.0.0>` and scipy 1.18.1 / scikit-image 0.26.0 /
-  matplotlib 3.11.2 installed -> **124 passed, 3 skipped**.
+  matplotlib 3.11.2 installed -> **125 passed, 3 skipped**.
   - Manual smoke test: 12 synthetic 700x700 images, `images_in_memory: 3`, 128 px patches - tiled evaluation
     scored all 1,470,000 test pixels at full resolution; peak RSS ~0.8 GB; 11 s on 4 cores.
   - Post-roadmap: early stopping (forced plateau -> stops after patience, evaluates epoch-1 checkpoint); excluded

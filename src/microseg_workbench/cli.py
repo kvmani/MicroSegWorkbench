@@ -430,6 +430,18 @@ def _register_with_service(settings, store, action: str, args: argparse.Namespac
     print(update_service(settings, store))
 
 
+def cmd_report(args: argparse.Namespace) -> int:
+    from .training.report import write_report
+    from .training.runs import RunDir
+
+    run = RunDir(_ws(args).runs_dir / args.run)
+    if not run.info():
+        print(f"Unknown run {args.run}", file=sys.stderr)
+        return 1
+    print(f"Report written to {write_report(run)}")
+    return 0
+
+
 def cmd_quickstart(args: argparse.Namespace) -> int:
     ws = _ws(args)
     folder = ws.demo_dir
@@ -536,6 +548,10 @@ def build_parser() -> argparse.ArgumentParser:
     s.add_argument("--checkpoint", choices=("best", "last"), default="best")
     s.add_argument("--device", choices=("auto", "cpu", "cuda"), default="auto")
     s.set_defaults(func=cmd_predict)
+
+    s = sub.add_parser("report", help="write a self-contained HTML report of a run")
+    s.add_argument("run")
+    s.set_defaults(func=cmd_report)
 
     s = sub.add_parser("compare", help="compare runs side by side")
     s.add_argument("runs", nargs="+")
