@@ -1,0 +1,39 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "microseg-workbench"
+version = "0.1.0"
+description = "Collaborative, reproducible workbench for scientific microstructure segmentation"
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "Proprietary - internal use" }
+dependencies = [
+    "numpy>=1.24",
+    "pillow>=10",
+]
+
+[project.optional-dependencies]
+# Model training/evaluation. On Windows install the CUDA or CPU wheel from the internal mirror.
+train = ["torch>=2.1", "psutil>=5.9"]
+gui = ["PySide6>=6.5", "psutil>=5.9"]
+test = ["pytest>=7"]
+all = ["torch>=2.1", "psutil>=5.9", "PySide6>=6.5", "pytest>=7"]
+
+[project.scripts]
+msw = "microseg_workbench.cli:main"
+
+[project.gui-scripts]
+msw-gui = "microseg_workbench.gui.app:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-ra"
+markers = [
+    "training: runs real (tiny) CPU model training; needs torch",
+    "gui: exercises the Qt desktop UI offscreen; needs PySide6",
+]
