@@ -225,3 +225,53 @@ def test_share_page_two_colleagues(app, tmp_path):
     bob.approved_only.setChecked(True)
     assert bob.runs.rowCount() == 1
     assert "approved" in bob.history.text()
+
+
+def test_import_onlineannotator_export_in_data_page(app, tmp_path):
+    from microseg_workbench.gui.app import MainWindow
+    from oa_fixture import make_bundle
+
+    splits = {f"S{s}_{i}": ("train" if s <= 2 else "val" if s == 3 else "test") for s in range(1, 5) for i in (1, 2)}
+    bundle = make_bundle(tmp_path / "zr_export.zip", splits=splits, unapproved=("S1_2",))
+    win = MainWindow(Workspace(tmp_path / "ws"), interactive=False)
+    data = win.data_page
+    data.import_bundle(bundle)
+    wait_until(app, lambda: data.report is not None and not data.busy)
+    assert data.report.ok and data.split_source.currentData() == "annotator"
+    assert "NOT approved" in data.ctx.last_error  # warning surfaced to the user
+    assert "train</b>: 4 images" in data.split_preview.text()
+    data.create_version()
+    wait_until(app, lambda: data.last_version_id is not None and not data.busy)
+    from microseg_workbench.core.dataset import DatasetVersion
+
+    v = DatasetVersion.open(win.ctx.workspace.datasets_dir / data.last_version_id)
+    assert v.manifest["split_config"]["source"] == "annotator" and v.manifest["contains_unapproved_annotations"]
+    win.close()
+
+
+def test_feature_statistics_tab(app, tmp_path, monkeypatch):
+    from microseg_workbench.core.dataset import create_dataset_version, validate_folder
+    from microseg_workbench.core.splits import DEFAULT_GROUP_REGEX, SplitConfig
+    from microseg_workbench.core.synthetic import SyntheticSpec, write_synthetic_dataset
+    from microseg_workbench.gui.app import MainWindow
+    from microseg_workbench.integrations import hydrideseg
+    from microseg_workbench.training.config import TrainConfig
+    from microseg_workbench.training.trainer import run_training
+
+    write_synthetic_dataset(tmp_path / "data", SyntheticSpec(specimens=3, images_per_specimen=2, size=64))
+    ws = Workspace(tmp_path / "ws").ensure()
+    v = create_dataset_version(validate_folder(tmp_path / "data", DEFAULT_GROUP_REGEX), SplitConfig(),
+                               ws.datasets_dir, "d")
+    run_training(TrainConfig(dataset_id=v.dataset_id, epochs=1, base_channels=4, depth=2, patches_per_image=1,
+                             device="cpu"), ws, run_id="r")
+    win = MainWindow(ws, interactive=False)
+    res = win.results_page
+    assert res.stats_class.currentText() == "hydride"
+    if not hydrideseg.availability()[0]:
+        res.compute_feature_stats()
+        assert "not available" in res.ctx.last_error
+        return
+    res.compute_feature_stats()
+    wait_until(app, lambda: not res.stats_busy)
+    assert res.stats_table.rowCount() == len(v.samples("test"))
+    assert "HydrideSegmentation" in res.stats_note.text()

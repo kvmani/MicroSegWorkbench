@@ -10,7 +10,7 @@ from typing import Callable
 from PySide6.QtCore import QUrl
 from PySide6.QtGui import QDesktopServices, QPixmap
 from PySide6.QtWidgets import (
-    QComboBox, QFileDialog, QHBoxLayout, QLabel, QListWidget, QListWidgetItem, QPushButton, QSplitter, QTableWidget,
+    QComboBox, QFileDialog, QHBoxLayout, QLineEdit, QLabel, QListWidget, QListWidgetItem, QPushButton, QSplitter, QTableWidget,
     QTableWidgetItem, QTabWidget, QVBoxLayout, QWidget,
 )
 
@@ -67,10 +67,36 @@ class ResultsPage(QWidget):
         ov = QVBoxLayout(overlays)
         ov.addWidget(self.overlay_pick)
         ov.addWidget(self.overlay, 1)
+        self.stats_class = QComboBox()
+        self.stats_um = QLineEdit()
+        self.stats_um.setPlaceholderText("micrometres per pixel (optional)")
+        self.stats_btn = QPushButton("Compute feature statistics")
+        self.stats_btn.setToolTip("Area fraction, feature count, size and orientation distributions of ground truth "
+                                  "vs prediction, computed with HydrideSegmentation's analysis functions.")
+        self.stats_btn.clicked.connect(self.compute_feature_stats)
+        self.stats_note = QLabel("")
+        self.stats_note.setWordWrap(True)
+        self.stats_table = QTableWidget(0, 7)
+        self.stats_table.setHorizontalHeaderLabels(["Test image", "Area fraction (truth)", "Area fraction (pred)",
+                                                    "Features (truth)", "Features (pred)", "Orientation KS",
+                                                    "Size KS"])
+        self.stats_table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
+        stats = QWidget()
+        sv = QVBoxLayout(stats)
+        srow = QHBoxLayout()
+        srow.addWidget(QLabel("Class:"))
+        srow.addWidget(self.stats_class)
+        srow.addWidget(self.stats_um, 1)
+        srow.addWidget(self.stats_btn)
+        sv.addLayout(srow)
+        sv.addWidget(self.stats_note)
+        sv.addWidget(self.stats_table, 1)
+        self.stats_busy = False
         tabs = QTabWidget()
         tabs.addTab(self.metrics, "Per-class test metrics")
         tabs.addTab(overlays, "Test overlays")
         tabs.addTab(self.history, "Training history")
+        tabs.addTab(stats, "Feature statistics")
 
         left = QWidget()
         lv = QVBoxLayout(left)
@@ -126,12 +152,20 @@ class ResultsPage(QWidget):
         self.history.setRowCount(0)
         self.overlay_pick.clear()
         self.overlay.set_pixmap(None)
+        self.stats_class.clear()
+        self.stats_table.setRowCount(0)
+        self.stats_note.setText("")
         self.resume_btn.setEnabled(bool(run and run.resumable()))
         self.predict_btn.setEnabled(bool(run and (run.checkpoints / "best.pt").exists()))
         if run is None:
             return
         info, status = run.info(), run.status()
         cfg = info.get("config", {})
+        for c in info.get("class_map", {}).get("classes", [])[1:]:
+            self.stats_class.addItem(c["name"])
+        idx = self.stats_class.findText("hydride")
+        if idx >= 0:
+            self.stats_class.setCurrentIndex(idx)
         evaluation_path = run.evaluation / "evaluation.json"
         report = json.loads(evaluation_path.read_text()) if evaluation_path.exists() else None
         self.banner.setText(UNREVIEWED if report else "")
@@ -220,3 +254,48 @@ class ResultsPage(QWidget):
             self.ctx.error(self, "Segment new images", message, details)
 
         run_background(lambda: predict_folder(run, input_folder, output_folder), done, failed)
+
+    def compute_feature_stats(self) -> None:
+        from ..integrations.hydrideseg import analyse_run, availability
+
+        run = self.selected_run()
+        if run is None or not (run.evaluation / "evaluation.json").exists():
+            self.ctx.error(self, "Feature statistics", "Select a completed run first.")
+            return
+        ok, message = availability()
+        if not ok:
+            self.stats_note.setText(f"<span style='color:#8a5a00'>{message}</span>")
+            self.ctx.error(self, "Feature statistics", message)
+            return
+        try:
+            um = float(self.stats_um.text()) if self.stats_um.text().strip() else None
+        except ValueError:
+            self.ctx.error(self, "Feature statistics", "Micrometres per pixel must be a number.")
+            return
+        cls, datasets_dir = self.stats_class.currentText(), self.ctx.workspace.datasets_dir
+        self.stats_busy = True
+        self.stats_btn.setEnabled(False)
+
+        def done(report: dict) -> None:
+            self.stats_busy = False
+            self.stats_btn.setEnabled(True)
+            rows = report["per_image_distances"]
+            self.stats_table.setRowCount(len(rows))
+            for r, (stem, d) in enumerate(rows.items()):
+                values = [stem, f"{d['mask_area_fraction_gt']:.4f}", f"{d['mask_area_fraction_pred']:.4f}",
+                          f"{d['hydride_count_gt']:.0f}", f"{d['hydride_count_pred']:.0f}",
+                          f"{d['hydride_orientation_ks']:.3f}", f"{d['hydride_size_ks']:.3f}"]
+                for c, v in enumerate(values):
+                    self.stats_table.setItem(r, c, QTableWidgetItem(v))
+            self.stats_table.resizeColumnsToContents()
+            self.stats_note.setText(f"{report['split'].title()} split, class '{cls}'. Computed with "
+                                    f"{report['computed_with']}. KS = Kolmogorov-Smirnov distance between truth and "
+                                    "prediction distributions (0 = identical). Saved in the run's evaluation folder. "
+                                    "Unreviewed.")
+
+        def failed(message: str, details: str) -> None:
+            self.stats_busy = False
+            self.stats_btn.setEnabled(True)
+            self.ctx.error(self, "Feature statistics", message, details)
+
+        run_background(lambda: analyse_run(run.root, datasets_dir, cls, um), done, failed)

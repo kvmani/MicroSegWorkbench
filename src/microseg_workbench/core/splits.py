@@ -27,6 +27,11 @@ class SplitConfig:
     test: float = 0.2
     seed: int = 42
     group_regex: str = DEFAULT_GROUP_REGEX
+    source: str = "group"  # "group": seeded group split; "annotator": splits assigned in the annotation tool
+
+    def __post_init__(self) -> None:
+        if self.source not in ("group", "annotator"):
+            raise SplitError("Split source must be 'group' or 'annotator'.")
 
     def fractions(self) -> dict[str, float]:
         total = self.train + self.val + self.test
@@ -82,3 +87,21 @@ def assign_splits(group_sizes: dict[str, int], config: SplitConfig) -> dict[str,
         assignment[group] = split
         counts[split] += group_sizes[group]
     return assignment
+
+
+def check_fixed_splits(assignment: dict[str, str], groups: dict[str, str]) -> None:
+    """Validate externally assigned splits (stem -> split) against leakage by group (stem -> group)."""
+    bad = sorted(s for s, split in assignment.items() if split not in SPLITS)
+    if bad:
+        raise SplitError(f"{len(bad)} image(s) have no train/val/test split assigned (e.g. {bad[:3]}). Assign splits "
+                         "in the annotation tool or use the group split instead.")
+    if "train" not in assignment.values():
+        raise SplitError("No image is assigned to the training split.")
+    by_group: dict[str, set[str]] = {}
+    for stem, split in assignment.items():
+        by_group.setdefault(groups[stem], set()).add(split)
+    leaking = sorted(g for g, splits in by_group.items() if len(splits) > 1)
+    if leaking:
+        raise SplitError(f"The assigned splits put images of the same group in different splits (groups "
+                         f"{', '.join(leaking[:5])}). That leaks information into evaluation. Fix the assignment "
+                         "or the grouping pattern, or use the group split.")

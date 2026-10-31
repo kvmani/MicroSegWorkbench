@@ -41,7 +41,7 @@ from .imageio import (
     load_image,
     load_mask_values,
 )
-from .splits import SplitConfig, SplitError, assign_splits, derive_group
+from .splits import SplitConfig, SplitError, assign_splits, check_fixed_splits, derive_group
 
 MANIFEST_SCHEMA = "microseg-workbench.dataset/1"
 MANIFEST_FILENAME = "manifest.json"
@@ -79,6 +79,7 @@ class ValidationReport:
     pairs: list[PairRecord]
     issues: list[Issue]
     group_regex: str
+    provenance: dict[str, Any] | None = None
 
     @property
     def errors(self) -> list[Issue]:
@@ -217,11 +218,37 @@ def validate_folder(folder: Path, group_regex: str) -> ValidationReport:
         issues.append(Issue("warning", "singleton_groups",
                             "Every image is its own group. If several images come from the same specimen, "
                             "adjust the grouping pattern so they stay in the same split."))
-    return ValidationReport(folder=folder, class_map=class_map, pairs=pairs, issues=issues, group_regex=group_regex)
+    provenance = None
+    try:
+        from ..integrations.onlineannotator import read_provenance
+
+        provenance = read_provenance(folder)
+    except ValueError as exc:
+        issues.append(Issue("error", "provenance", f"provenance.json is unreadable: {exc}"))
+    if provenance:
+        unapproved = set(provenance.get("unapproved", [])) & {p.stem for p in loaded}
+        if unapproved:
+            issues.append(Issue("warning", "unapproved_annotations",
+                                f"{len(unapproved)} mask(s) were not approved in the annotation tool "
+                                f"(e.g. {sorted(unapproved)[:3]}). Results will be marked as using unapproved "
+                                "ground truth."))
+        missing = sorted({p.stem for p in loaded} - set(provenance.get("samples", {})))
+        if missing:
+            issues.append(Issue("warning", "provenance_missing",
+                                f"{len(missing)} image(s) have no provenance record (e.g. {missing[:3]})."))
+    return ValidationReport(folder=folder, class_map=class_map, pairs=pairs, issues=issues, group_regex=group_regex,
+                            provenance=provenance)
 
 
 def plan_split(report: ValidationReport, config: SplitConfig) -> dict[str, str]:
     """Stem -> split for all valid pairs."""
+    if config.source == "annotator":
+        samples = (report.provenance or {}).get("samples", {})
+        if not samples:
+            raise SplitError("This folder has no split assignments from an annotation tool; use the group split.")
+        assignment = {p.stem: (samples.get(p.stem) or {}).get("split") or "unassigned" for p in report.pairs if p.ok}
+        check_fixed_splits(assignment, {p.stem: p.group for p in report.pairs if p.ok})
+        return assignment
     sizes = Counter(p.group for p in report.pairs if p.ok)
     by_group = assign_splits(dict(sizes), config)
     return {p.stem: by_group[p.group] for p in report.pairs if p.ok}
@@ -322,10 +349,14 @@ def create_dataset_version(report: ValidationReport, split_config: SplitConfig, 
                 "load_notes": list(pair.notes),
                 "source_image": str(pair.image_path),
                 "source_mask": str(pair.mask_path),
+                "annotation_provenance": ((report.provenance or {}).get("samples", {}).get(pair.stem)),
             })
+        split_identity = asdict(split_config)
+        if split_config.source == "group":
+            split_identity.pop("source")  # keeps ids of group-split versions identical to earlier releases
         content = {
             "class_map": class_map.to_dict(),
-            "split_config": asdict(split_config),
+            "split_config": split_identity,
             "samples": [{k: s[k] for k in ("stem", "group", "split", "image_sha256", "stored_mask_sha256")}
                         for s in samples],
         }
@@ -345,6 +376,9 @@ def create_dataset_version(report: ValidationReport, split_config: SplitConfig, 
             "groups": {g: sorted({s["split"] for s in samples if s["group"] == g}) for g in
                        sorted({s["group"] for s in samples})},
             "warnings": [asdict(i) for i in report.warnings],
+            "annotation_source": (report.provenance or {}).get("source"),
+            "contains_unapproved_annotations": bool(set((report.provenance or {}).get("unapproved", []))
+                                                    & {s["stem"] for s in samples}),
             "samples": samples,
         }
         write_json_atomic(stage / MANIFEST_FILENAME, manifest)

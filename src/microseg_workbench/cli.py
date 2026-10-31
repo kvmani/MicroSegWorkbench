@@ -14,7 +14,7 @@ from .core.augment import AugmentConfig
 from .core.dataset import DatasetVersion, create_dataset_version, list_dataset_versions, validate_folder
 from .core.imageio import encode_png, load_image, load_mask_values, to_unit_float
 from .core.render import augmentation_preview
-from .core.splits import DEFAULT_GROUP_REGEX, SplitConfig
+from .core.splits import DEFAULT_GROUP_REGEX, SplitConfig, SplitError
 from .core.synthetic import SyntheticSpec, write_synthetic_dataset
 from .core.workspace import Workspace
 
@@ -62,12 +62,60 @@ def cmd_prepare(args: argparse.Namespace) -> int:
     if not report.ok:
         print("Not creating a dataset version: fix the errors above first.", file=sys.stderr)
         return 1
-    split = SplitConfig(train=args.train, val=args.val, test=args.test, seed=args.seed, group_regex=args.group_regex)
-    version = create_dataset_version(report, split, ws.datasets_dir, args.name)
+    split = SplitConfig(train=args.train, val=args.val, test=args.test, seed=args.seed, group_regex=args.group_regex,
+                        source=args.split_source)
+    try:
+        version = create_dataset_version(report, split, ws.datasets_dir, args.name)
+    except SplitError as exc:
+        print(f"Cannot split: {exc}", file=sys.stderr)
+        return 1
     print(f"Dataset version: {version.dataset_id}")
     print(f"Split counts: {version.manifest['split_counts']}")
     for group, splits in version.manifest["groups"].items():
         print(f"  group {group}: {splits[0]}")
+    return 0
+
+
+def cmd_import_oa(args: argparse.Namespace) -> int:
+    from .integrations.onlineannotator import OAImportError, import_bundle
+
+    out = Path(args.out) if args.out else _ws(args).root / "imports" / Path(args.bundle).stem
+    try:
+        report = import_bundle(Path(args.bundle), out, progress=None if args.quiet else print)
+    except OAImportError as exc:
+        print(f"Import failed: {exc}", file=sys.stderr)
+        return 1
+    print(f"Imported {report.images} image(s) ({report.mask_style} masks) into {report.folder}")
+    print("Classes: " + ", ".join(f"{c.value}={c.name}" for c in report.class_map.classes))
+    print(f"Splits assigned in OnlineAnnotator: {report.splits}")
+    for w in report.warnings:
+        print(f"WARNING: {w}")
+    print(f"Next: msw prepare {report.folder} --name <name> [--split-source annotator]")
+    return 0
+
+
+def cmd_hydride_stats(args: argparse.Namespace) -> int:
+    from .integrations.hydrideseg import HydrideSegUnavailable, analyse_predictions, analyse_run
+
+    ws = _ws(args)
+    try:
+        if args.predictions:
+            report = analyse_predictions(Path(args.predictions), args.class_name, args.um_per_px)
+            for name, stats in report["images"].items():
+                m = stats["scalar_metrics"]
+                print(f"{name}: " + ", ".join(f"{k} {v:.4g}" for k, v in list(m.items())[:6]
+                                              if isinstance(v, (int, float))))
+        else:
+            report = analyse_run(ws.runs_dir / args.run, ws.datasets_dir, args.class_name, args.um_per_px)
+            for stem, d in report["per_image_distances"].items():
+                print(f"{stem}: area fraction truth {d['mask_area_fraction_gt']:.4f} pred "
+                      f"{d['mask_area_fraction_pred']:.4f}, count {d['hydride_count_gt']:.0f}/"
+                      f"{d['hydride_count_pred']:.0f}, orientation KS {d['hydride_orientation_ks']:.3f}, "
+                      f"size KS {d['hydride_size_ks']:.3f}")
+    except (HydrideSegUnavailable, ValueError, FileNotFoundError) as exc:
+        print(f"Cannot analyse: {exc}", file=sys.stderr)
+        return 1
+    print(f"Computed with {report['computed_with']}  [UNREVIEWED]")
     return 0
 
 
@@ -399,7 +447,22 @@ def build_parser() -> argparse.ArgumentParser:
             s.add_argument("--val", type=float, default=0.2)
             s.add_argument("--test", type=float, default=0.2)
             s.add_argument("--seed", type=int, default=42)
+            s.add_argument("--split-source", choices=("group", "annotator"), default="group",
+                           help="group: seeded split by group; annotator: splits assigned in OnlineAnnotator")
         s.set_defaults(func=func)
+
+    s = sub.add_parser("hydride-stats", help="HydrideSegmentation feature statistics (optional integration)")
+    s.add_argument("run", nargs="?", help="run whose test predictions are compared with ground truth")
+    s.add_argument("--predictions", help="instead: a 'msw predict' output folder")
+    s.add_argument("--class", dest="class_name", default="hydride")
+    s.add_argument("--um-per-px", type=float, help="spatial calibration (micrometres per pixel)")
+    s.set_defaults(func=cmd_hydride_stats)
+
+    s = sub.add_parser("import-oa", help="import an OnlineAnnotator export (ZIP or folder)")
+    s.add_argument("bundle")
+    s.add_argument("--out", help="new folder (default: <workspace>/imports/<bundle name>)")
+    s.add_argument("--quiet", action="store_true")
+    s.set_defaults(func=cmd_import_oa)
 
     sub.add_parser("datasets", help="list dataset versions").set_defaults(func=cmd_datasets)
     sub.add_parser("devices", help="show CPU/GPU devices").set_defaults(func=cmd_devices)

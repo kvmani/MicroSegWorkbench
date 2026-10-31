@@ -8,7 +8,7 @@ from pathlib import Path
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QColor
 from PySide6.QtWidgets import (
-    QDoubleSpinBox, QFileDialog, QFormLayout, QGroupBox, QHBoxLayout, QLabel, QLineEdit, QListWidget,
+    QComboBox, QDoubleSpinBox, QFileDialog, QFormLayout, QGroupBox, QHBoxLayout, QLabel, QLineEdit, QListWidget,
     QListWidgetItem, QPushButton, QSpinBox, QSplitter, QTableWidget, QTableWidgetItem, QVBoxLayout, QWidget,
 )
 
@@ -42,6 +42,10 @@ class DataPage(QWidget):
         self.demo_btn = QPushButton("Create demo data")
         self.demo_btn.setToolTip("Writes small SYNTHETIC micrographs into the workspace so you can try every step.")
         self.demo_btn.clicked.connect(self.create_demo_data)
+        self.import_btn = QPushButton("Import OnlineAnnotator export...")
+        self.import_btn.setToolTip("Convert an OnlineAnnotator ML export (ZIP) into a checked folder, keeping class "
+                                   "numbers and who annotated/approved each mask.")
+        self.import_btn.clicked.connect(self._import_dialog)
         self.regex = QLineEdit(DEFAULT_GROUP_REGEX)
         self.regex.setToolTip("Regular expression; its first (...) group is the specimen/source name. "
                               "Default: text before the first underscore, e.g. S01 in S01_0003.png.")
@@ -54,6 +58,7 @@ class DataPage(QWidget):
         row1.addWidget(self.folder, 1)
         row1.addWidget(browse)
         row1.addWidget(self.demo_btn)
+        row1.addWidget(self.import_btn)
         row2 = QHBoxLayout()
         row2.addWidget(QLabel("Group pattern:"))
         row2.addWidget(self.regex, 1)
@@ -82,6 +87,13 @@ class DataPage(QWidget):
         self.seed.setValue(42)
         for w in (self.train, self.val, self.test, self.seed):
             w.valueChanged.connect(self._update_split_preview)
+        self.import_warnings: list[str] = []
+        self.split_source = QComboBox()
+        self.split_source.addItem("Seeded split by group (fractions below)", "group")
+        self.split_source.addItem("As assigned in OnlineAnnotator", "annotator")
+        self.split_source.setToolTip("Use the train/val/test assignment made in the annotation tool. Groups must "
+                                     "not span splits.")
+        self.split_source.currentIndexChanged.connect(self._update_split_preview)
         self.split_preview = QLabel("")
         self.split_preview.setWordWrap(True)
         self.create_btn = QPushButton("Create dataset version")
@@ -91,6 +103,7 @@ class DataPage(QWidget):
         self.result.setWordWrap(True)
         self.result.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
         form.addRow("Name:", self.name)
+        form.addRow("Split:", self.split_source)
         form.addRow("Train fraction:", self.train)
         form.addRow("Validation fraction:", self.val)
         form.addRow("Test fraction:", self.test)
@@ -138,7 +151,7 @@ class DataPage(QWidget):
 
     def _set_busy(self, busy: bool, message: str = "") -> None:
         self.busy = busy
-        for w in (self.check_btn, self.demo_btn):
+        for w in (self.check_btn, self.demo_btn, self.import_btn):
             w.setEnabled(not busy)
         self.create_btn.setEnabled(not busy and bool(self.report and self.report.ok))
         if message:
@@ -155,6 +168,33 @@ class DataPage(QWidget):
             self.check_folder()
 
         run_background(lambda: write_synthetic_dataset(out, SyntheticSpec()), done, self._failed("Demo data"))
+
+    def _import_dialog(self) -> None:
+        bundle = QFileDialog.getOpenFileName(self, "OnlineAnnotator export", "", "ZIP files (*.zip)")[0]
+        if bundle:
+            self.import_bundle(Path(bundle))
+
+    def import_bundle(self, bundle: Path) -> None:
+        from ..integrations.onlineannotator import import_bundle
+
+        base = self.ctx.workspace.root / "imports" / bundle.stem
+        dest, n = base, 2
+        while dest.exists():
+            dest, n = base.with_name(f"{base.name}-{n}"), n + 1
+        self._set_busy(True, f"Importing {bundle.name}...")
+
+        def done(report) -> None:
+            self._set_busy(False, f"Imported {report.images} image(s) into {report.folder}")
+            self.import_warnings = report.warnings
+            self.folder.setText(str(report.folder))
+            self.name.setText(bundle.stem.split("_")[0] or "imported")
+            if report.splits and set(report.splits) <= {"train", "val", "test"}:
+                self.split_source.setCurrentIndex(self.split_source.findData("annotator"))
+            self.check_folder()
+            for w in report.warnings:
+                self.ctx.error(self, "Imported with warnings", w)
+
+        run_background(lambda: import_bundle(bundle, dest), done, self._failed("Import OnlineAnnotator export"))
 
     def _failed(self, title: str):
         def handler(message: str, details: str) -> None:
@@ -213,7 +253,8 @@ class DataPage(QWidget):
 
     def _split_config(self) -> SplitConfig:
         return SplitConfig(train=self.train.value(), val=self.val.value(), test=self.test.value(),
-                           seed=self.seed.value(), group_regex=self.report.group_regex if self.report else self.regex.text())
+                           seed=self.seed.value(), group_regex=self.report.group_regex if self.report else self.regex.text(),
+                           source=self.split_source.currentData())
 
     def _update_split_preview(self) -> None:
         if not self.report or not self.report.ok:
@@ -226,7 +267,12 @@ class DataPage(QWidget):
             self.create_btn.setEnabled(False)
             return
         self.create_btn.setEnabled(True)
-        groups = {p.group: plan[p.stem] for p in self.report.pairs if p.ok}
+        for w in (self.train, self.val, self.test, self.seed):
+            w.setEnabled(self.split_source.currentData() == "group")
+        groups: dict[str, str] = {}
+        for p in self.report.pairs:
+            if p.ok:
+                groups[p.group] = plan[p.stem]
         counts = Counter(plan.values())
         lines = []
         for split in ("train", "val", "test"):

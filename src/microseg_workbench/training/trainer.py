@@ -412,6 +412,8 @@ def evaluate_run(run: RunDir, workspace: Workspace, device: torch.device | None 
         "overlay_layout": "image | ground truth | prediction",
         "prediction_masks": "evaluation/<stem>_pred_mask.png hold class values from the class map",
         "review_status": "unreviewed",
+        "ground_truth": ("contains masks NOT approved in the annotation tool"
+                         if version.manifest.get("contains_unapproved_annotations") else "as in dataset version"),
         "evaluated_at": utc_now(),
     }
     write_json_atomic(run.evaluation / "evaluation.json", report)
