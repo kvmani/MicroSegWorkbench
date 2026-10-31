@@ -1,6 +1,6 @@
 # Architecture decisions
 
-Status: Phase 1 local vertical slice implemented (decisions AD-1..AD-5 below); collaboration architecture still open.
+Status: Phases 1-2 implemented (decisions AD-1..AD-8 below); collaboration architecture still open.
 
 The system has three logical responsibilities:
 1. **Desktop data/compute client (Windows):** Guided UI, verified dataset cache, real local model training and telemetry, intermediate inference, reporting.
@@ -57,4 +57,34 @@ Do not choose a complex distributed framework before a tested vertical slice jus
 Seeds drive weight init, batch order and every augmentation (per-sample numpy generators keyed by
 seed/epoch/index). `torch.use_deterministic_algorithms(True, warn_only=True)`, cuDNN benchmark off.
 Verified: identical loss sequences for identical seeds on CPU (same machine and thread count). GPU
-bit-reproducibility is not claimed.
+bit-reproducibility is not claimed (mixed precision and some CUDA kernels are non-deterministic).
+
+## Decisions (Phase 2, 2026-10-31)
+
+### AD-6 Resume = restore everything that influences the future
+`last.pt` holds model, AdamW, LR-schedule and AMP-scaler state plus best-score bookkeeping and the global step.
+Because batches and augmentation are keyed by (seed, epoch, sample), resuming after epoch k reproduces the
+uninterrupted run exactly on CPU (tested bit-for-bit). Resolved settings (batch size, mixed precision) are read
+from `run.json` so a resume cannot silently change them. Epochs repeated after a crash are de-duplicated by
+readers (`RunDir.epoch_history`, charts replace points). `status.json` records pid and host; an active state whose
+process is gone on this host is reported as `interrupted`.
+
+### AD-7 GPU safety and telemetry
+- Out-of-memory (CUDA or host) in a step becomes `TrainingOutOfMemory` with concrete advice; the run is `failed`
+  with `error_type: out_of_memory` and remains resumable.
+- `batch_size: 0` probes 64, 32, ... with a real forward/backward pass on zeros (weights and BatchNorm statistics
+  restored afterwards); CPU uses 8. Mixed precision (fp16 autocast + GradScaler) is automatic on CUDA only.
+- Telemetry: a daemon thread samples psutil and NVML/`nvidia-smi` every 2 s so a slow query never stalls training.
+  `MSW_SIMULATED_GPU_TELEMETRY=1` adds fake GPU figures flagged `simulated: true` for UI tests; the UI labels them.
+- LR schedule: linear warm-up (10 %) + cosine decay to 5 %; replaces OneCycleLR, which raised ZeroDivisionError
+  for very short runs.
+- Loss default `cross_entropy_dice` (CE + soft Dice over classes present in the batch). A seed sweep showed that
+  with CE alone the smallest model sometimes never predicted the rare synthetic pore class.
+
+### AD-8 Preprocessing and resolution
+`Preprocess(resize_factor, normalization)` is stored in every checkpoint and applied identically in training,
+evaluation and prediction. Training uses resized images/masks (area/bilinear for images, nearest for masks);
+evaluation and prediction upsample class probabilities (bilinear) to the original size and score against the
+original masks. Per-image standardization uses whole-image statistics (computed before patching) so patches and
+full-image inference see the same scaling. Inputs larger than 512 px are predicted in overlapping 512 px tiles with
+averaged probabilities (bounded GPU memory).

@@ -14,13 +14,14 @@ from PySide6.QtWidgets import (
 from .. import __version__
 from ..core.workspace import Workspace
 from .augment_page import AugmentPage
+from .compare_page import ComparePage
 from .context import AppContext
 from .data_page import DataPage
 from .help_page import HelpPage
 from .results_page import ResultsPage
 from .train_page import TrainPage
 
-STEPS = ["1  Data", "2  Augmentation", "3  Training", "4  Results", "?  Help"]
+STEPS = ["1  Data", "2  Preprocess", "3  Training", "4  Results", "5  Compare", "?  Help"]
 
 
 class MainWindow(QMainWindow):
@@ -31,8 +32,9 @@ class MainWindow(QMainWindow):
         self.ctx = AppContext(workspace, interactive=interactive)
         self.data_page = DataPage(self.ctx)
         self.augment_page = AugmentPage(self.ctx)
-        self.train_page = TrainPage(self.ctx, self.augment_page.config)
-        self.results_page = ResultsPage(self.ctx)
+        self.train_page = TrainPage(self.ctx, self.augment_page.config, self.augment_page.preprocess)
+        self.results_page = ResultsPage(self.ctx, resume=self._resume_run)
+        self.compare_page = ComparePage(self.ctx)
         self.help_page = HelpPage()
 
         self.nav = QListWidget()
@@ -40,7 +42,8 @@ class MainWindow(QMainWindow):
         self.nav.setFixedWidth(170)
         self.nav.setStyleSheet("QListWidget { font-size: 14px; } QListWidget::item { padding: 10px 6px; }")
         self.stack = QStackedWidget()
-        for page in (self.data_page, self.augment_page, self.train_page, self.results_page, self.help_page):
+        for page in (self.data_page, self.augment_page, self.train_page, self.results_page, self.compare_page,
+                     self.help_page):
             self.stack.addWidget(page)
         self.nav.currentRowChanged.connect(self.stack.setCurrentIndex)
         self.nav.setCurrentRow(0)
@@ -65,6 +68,12 @@ class MainWindow(QMainWindow):
 
     def go_to(self, step: int) -> None:
         self.nav.setCurrentRow(step)
+
+    def _resume_run(self, run) -> bool:
+        if self.train_page.resume(run):
+            self.go_to(2)
+            return True
+        return False
 
     def _update_workspace_label(self) -> None:
         self.workspace_label.setText(f"<b>Workspace:</b> {self.ctx.workspace.root}")

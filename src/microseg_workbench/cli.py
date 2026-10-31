@@ -202,6 +202,53 @@ def cmd_runs(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_compare(args: argparse.Namespace) -> int:
+    from .training.compare import comparison_csv, compare_runs
+    from .training.runs import RunDir
+
+    ws = _ws(args)
+    runs = [RunDir(ws.runs_dir / r) for r in args.runs]
+    missing = [r.run_id for r in runs if not r.info()]
+    if missing:
+        print(f"Unknown run(s): {', '.join(missing)}", file=sys.stderr)
+        return 1
+    comparison = compare_runs(runs)
+    for w in comparison["warnings"]:
+        print(f"WARNING: {w}")
+    for s in comparison["runs"]:
+        classes = "  ".join(f"{k} {_fmt(v)}" for k, v in s["test_class_iou"].items())
+        print(f"{s['run_id']}  [{s['dataset_id']}]  test mIoU {_fmt(s['test_miou'])}  "
+              f"mIoU(fg) {_fmt(s['test_miou_fg'])}  best val {_fmt(s['best_val_miou_fg'])} @ {s['best_val_epoch']}  "
+              f"{s['train_seconds']}s  | {classes}")
+    if comparison["differences"]:
+        print("Settings that differ:")
+        for k, values in comparison["differences"].items():
+            print(f"  {k}: " + " | ".join(str(v) for v in values))
+    print("All scores are UNREVIEWED.")
+    if args.csv:
+        Path(args.csv).write_text(comparison_csv(comparison), encoding="utf-8")
+        print(f"CSV written to {args.csv}")
+    return 0
+
+
+def cmd_predict(args: argparse.Namespace) -> int:
+    from .training.predict import PredictionError, predict_folder
+    from .training.runs import RunDir
+
+    ws = _ws(args)
+    try:
+        report = predict_folder(RunDir(ws.runs_dir / args.run), Path(args.input), Path(args.out),
+                                checkpoint=args.checkpoint, device=args.device,
+                                progress=lambda i, n, name: print(f"[{i}/{n}] {name}", flush=True))
+    except PredictionError as exc:
+        print(f"Cannot predict: {exc}", file=sys.stderr)
+        return 1
+    for err in report["errors"]:
+        print(f"SKIPPED {err['file']}: {err['error']}")
+    print(f"{len(report['images'])} prediction(s) written to {args.out}  [UNREVIEWED]")
+    return 0 if report["images"] else 1
+
+
 def cmd_quickstart(args: argparse.Namespace) -> int:
     ws = _ws(args)
     folder = ws.demo_dir
@@ -281,6 +328,19 @@ def build_parser() -> argparse.ArgumentParser:
         s.add_argument("--run-id")
         s.add_argument("--quiet", action="store_true")
         s.set_defaults(func=func, config=None)
+
+    s = sub.add_parser("predict", help="segment new images with a trained run")
+    s.add_argument("run")
+    s.add_argument("input", help="folder of images")
+    s.add_argument("--out", required=True, help="new output folder")
+    s.add_argument("--checkpoint", choices=("best", "last"), default="best")
+    s.add_argument("--device", choices=("auto", "cpu", "cuda"), default="auto")
+    s.set_defaults(func=cmd_predict)
+
+    s = sub.add_parser("compare", help="compare runs side by side")
+    s.add_argument("runs", nargs="+")
+    s.add_argument("--csv", help="also write the table as CSV")
+    s.set_defaults(func=cmd_compare)
 
     s = sub.add_parser("resume", help="continue a cancelled, failed or interrupted run")
     s.add_argument("run")

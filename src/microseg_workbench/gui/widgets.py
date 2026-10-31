@@ -65,10 +65,12 @@ class ImageView(QLabel):
 class LineChart(QWidget):
     """Minimal line chart: one y-axis, legend, markers, nearest-point hover tooltip."""
 
-    def __init__(self, title: str, y_label: str, y_range: tuple[float, float] | None = None) -> None:
+    def __init__(self, title: str, y_label: str, y_range: tuple[float, float] | None = None,
+                 x_label: str = "epoch") -> None:
         super().__init__()
         self.title = title
         self.y_label = y_label
+        self.x_label = x_label
         self.fixed_range = y_range
         self.series: dict[str, list[tuple[float, float]]] = {}
         self.setMinimumSize(320, 200)
@@ -79,9 +81,17 @@ class LineChart(QWidget):
         self.update()
 
     def add_point(self, name: str, x: float, y: float | None) -> None:
+        """Add a point; a point with the same x replaces the old one (e.g. an epoch repeated after resume)."""
         if y is None or not math.isfinite(y):
             return
-        self.series.setdefault(name, []).append((float(x), float(y)))
+        pts = [pt for pt in self.series.setdefault(name, []) if pt[0] != float(x)]
+        pts.append((float(x), float(y)))
+        pts.sort()
+        self.series[name] = pts
+        self.update()
+
+    def set_series(self, name: str, points: list[tuple[float, float | None]]) -> None:
+        self.series[name] = sorted((float(x), float(y)) for x, y in points if y is not None and math.isfinite(y))
         self.update()
 
     def point_count(self) -> int:
@@ -124,14 +134,16 @@ class LineChart(QWidget):
             p.drawLine(QPointF(r.left(), py), QPointF(r.right(), py))
             p.setPen(QColor(MUTED))
             p.drawText(QRectF(0, py - 8, r.left() - 6, 16), Qt.AlignmentFlag.AlignRight, f"{yv:.2f}")
-        p.drawText(QRectF(r.left(), r.bottom() + 4, r.width(), 16), Qt.AlignmentFlag.AlignCenter, "epoch")
+        p.drawText(QRectF(r.left(), r.bottom() + 4, r.width(), 16), Qt.AlignmentFlag.AlignCenter, self.x_label)
         p.drawText(QRectF(r.left(), r.bottom() + 4, 40, 16), Qt.AlignmentFlag.AlignLeft, f"{x0:g}")
         p.drawText(QRectF(r.right() - 40, r.bottom() + 4, 40, 16), Qt.AlignmentFlag.AlignRight, f"{x1:g}")
         if not self.series:
             p.drawText(r, Qt.AlignmentFlag.AlignCenter, "Waiting for data")
         legend_x = r.right()
         for idx, (name, pts) in reversed(list(enumerate(self.series.items()))):
-            color = QColor(SERIES_COLORS[idx % len(SERIES_COLORS)])
+            if idx >= len(SERIES_COLORS):
+                continue  # never cycle colours; callers limit the series count
+            color = QColor(SERIES_COLORS[idx])
             path = QPainterPath()
             for j, (x, y) in enumerate(pts):
                 pt = self._to_px(x, y)
@@ -141,8 +153,9 @@ class LineChart(QWidget):
             p.drawPath(path)
             p.setBrush(color)
             p.setPen(QPen(QColor("#ffffff"), 2))
-            for x, y in pts:
-                p.drawEllipse(self._to_px(x, y), 4, 4)
+            if len(pts) <= 60:  # markers only while they stay readable
+                for x, y in pts:
+                    p.drawEllipse(self._to_px(x, y), 4, 4)
             if len(self.series) > 1:  # legend row under the title; a single series is named by the title
                 width = p.fontMetrics().horizontalAdvance(name) + 22
                 legend_x -= width + 8
@@ -160,7 +173,7 @@ class LineChart(QWidget):
                 if best is None or d < best[0]:
                     best = (d, name, x, y)
         if best and best[0] < 40:
-            QToolTip.showText(event.globalPosition().toPoint(), f"{best[1]}\nepoch {best[2]:g}: {best[3]:.4f}", self)
+            QToolTip.showText(event.globalPosition().toPoint(), f"{best[1]}\n{self.x_label} {best[2]:g}: {best[3]:.4f}", self)
         else:
             QToolTip.hideText()
 

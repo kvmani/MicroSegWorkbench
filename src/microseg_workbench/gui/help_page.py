@@ -13,7 +13,7 @@ Work through the steps on the left in order. Every step can also be run from the
 <ol>
 <li><b>1 Data</b>: press <i>Create demo data</i>. Synthetic micrographs (not real data) are written and checked.</li>
 <li>Press <i>Create dataset version</i>.</li>
-<li><b>2 Augmentation</b>: press <i>Preview</i> to see random flips, rotations and brightness changes.</li>
+<li><b>2 Preprocess</b>: press <i>Preview</i> to see random flips, rotations and brightness changes.</li>
 <li><b>3 Training</b>: keep the <i>Quick CPU</i> preset and press <i>Start training</i>.</li>
 <li><b>4 Results</b>: inspect test-set metrics and overlays.</li>
 </ol>
@@ -52,6 +52,37 @@ the model is overfitting.</li>
 <li>The <b>prediction evolution</b> panel shows the model's output for the same validation images after each epoch.</li>
 <li>CPU, memory and GPU figures are real measurements of the training process.</li>
 </ul>
+
+<h3>Preprocessing</h3>
+<p><i>Resize factor</i> shrinks or enlarges images before the model sees them (0.5 halves width and height). Masks are
+resized with nearest neighbour, so thin features can vanish when shrinking: check the preview. Evaluation and
+predictions are always mapped back to the original resolution and compared with the original masks.
+<i>Per-image standardization</i> removes overall brightness and contrast differences between acquisitions.</p>
+
+<h3>GPU training</h3>
+<ul>
+<li>The <b>Device</b> list and the line below it show whether an NVIDIA GPU was found and why not, if not.</li>
+<li><b>Automatic batch size</b> tries 64, 32, 16 ... images per step until one fits in GPU memory.</li>
+<li><b>Mixed precision</b> (automatic on GPUs) roughly halves memory use and speeds up training.</li>
+<li>If the GPU runs out of memory the run stops with advice (smaller batch size or patches); nothing is lost
+before the last completed epoch.</li>
+<li>The <i>Computer resources</i> tab shows CPU, RAM, GPU utilisation and GPU memory. Values marked SIMULATED come
+from a test mode and are not real.</li>
+</ul>
+
+<h3>Stopping and resuming</h3>
+<p>A cancelled run, a failed run or a run whose computer crashed keeps the checkpoint of its last completed epoch.
+Select it in <b>4 Results</b> and press <i>Resume training</i>; it continues exactly where it stopped.</p>
+
+<h3>Comparing runs</h3>
+<p><b>5 Compare</b> shows ticked runs side by side: scores, settings that differ, validation curves and the same
+test image predicted by each run. Only runs on the same dataset version share a test set; otherwise a warning
+appears and their test scores must not be ranked.</p>
+
+<h3>Segmenting new images</h3>
+<p>In <b>4 Results</b>, select a run and press <i>Segment new images...</i>. Choose a folder of micrographs and a new
+output folder; each image gets a mask (<code>_pred_mask.png</code>, original class values), an overlay and an entry in
+<code>predictions.json</code> with the model's identity. Predictions are unreviewed.</p>
 
 <h3>Results and approval</h3>
 <p>The best checkpoint (highest validation feature IoU) is evaluated on the test split. All results are marked

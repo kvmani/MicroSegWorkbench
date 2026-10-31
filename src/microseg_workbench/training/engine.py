@@ -13,6 +13,7 @@ import torch.nn.functional as F
 
 from ..core.augment import IGNORE_INDEX
 from ..core.metrics import confusion_matrix, metrics_from_confusion
+from ..core.preprocess import Preprocess, normalize, resize_image
 from .data import Sample
 from .model import ModelConfig, UNet
 
@@ -59,23 +60,69 @@ def predict_logits(model: UNet, image: np.ndarray, device: torch.device) -> torc
     return model(x)[0, :, :h, :w]
 
 
-def predict_labels(model: UNet, image: np.ndarray, device: torch.device) -> np.ndarray:
-    return predict_logits(model, image, device).argmax(0).to(torch.uint8).cpu().numpy()
+TILE = 512
+TILE_OVERLAP = 64
 
 
 @torch.no_grad()
-def evaluate(model: UNet, samples: list[Sample], device: torch.device, class_names: list[str]
-             ) -> tuple[dict[str, Any], float | None, dict[str, np.ndarray]]:
-    """Return (metrics, mean loss, predictions by stem) over full images."""
+def predict_probabilities(model: UNet, image: np.ndarray, device: torch.device, tile: int = TILE,
+                          overlap: int = TILE_OVERLAP) -> torch.Tensor:
+    """Class probabilities (K, H, W) on the CPU.
+
+    Images larger than ``tile`` are processed in overlapping tiles (bounded GPU memory); overlapping
+    probabilities are averaged. Small images are processed whole.
+    """
+    h, w = image.shape[:2]
+    if h <= tile and w <= tile:
+        return predict_logits(model, image, device).float().softmax(0).cpu()
+    if overlap * 2 >= tile:
+        raise ValueError("tile overlap must be less than half the tile size")
+    stride = tile - overlap
+    ys = sorted({min(y, max(0, h - tile)) for y in range(0, max(1, h - overlap), stride)})
+    xs = sorted({min(x, max(0, w - tile)) for x in range(0, max(1, w - overlap), stride)})
+    acc = torch.zeros(model.cfg.num_classes, h, w)
+    count = torch.zeros(1, h, w)
+    for y in ys:
+        for x in xs:
+            crop = image[y:y + tile, x:x + tile]
+            probs = predict_logits(model, crop, device).float().softmax(0).cpu()
+            acc[:, y:y + crop.shape[0], x:x + crop.shape[1]] += probs
+            count[:, y:y + crop.shape[0], x:x + crop.shape[1]] += 1
+    return acc / count
+
+
+def segment_probabilities(model: UNet, image: np.ndarray, device: torch.device, prep: Preprocess,
+                          tile: int = TILE) -> torch.Tensor:
+    """Probabilities (K, H, W) at the ORIGINAL resolution for a [0, 1] image (resize, normalize, predict, map back)."""
+    h, w = image.shape[:2]
+    scaled = resize_image(image, prep.scaled_shape(h, w))
+    probs = predict_probabilities(model, normalize(scaled, prep.normalization), device, tile=tile)
+    if probs.shape[1:] != (h, w):
+        probs = F.interpolate(probs[None], size=(h, w), mode="bilinear", align_corners=False)[0]
+    return probs
+
+
+def predict_labels(model: UNet, image: np.ndarray, device: torch.device, prep: Preprocess | None = None,
+                   tile: int = TILE) -> np.ndarray:
+    """Model channel index per pixel (uint8) at the image's original resolution."""
+    return segment_probabilities(model, image, device, prep or Preprocess(), tile=tile).argmax(0).to(torch.uint8).numpy()
+
+
+@torch.no_grad()
+def evaluate(model: UNet, samples: list[Sample], device: torch.device, class_names: list[str],
+             prep: Preprocess | None = None) -> tuple[dict[str, Any], float | None, dict[str, np.ndarray]]:
+    """Return (metrics, mean cross-entropy, predictions by stem) over full images at original resolution."""
+    prep = prep or Preprocess()
     k = len(class_names)
     cm = np.zeros((k, k), dtype=np.int64)
     losses, preds = [], {}
     for s in samples:
-        logits = predict_logits(model, s.image, device)
-        target = torch.from_numpy(s.labels.astype(np.int64)).to(device)
+        probs = segment_probabilities(model, s.image, device, prep)
+        target = torch.from_numpy(s.labels.astype(np.int64))
         if (target != IGNORE_INDEX).any():
-            losses.append(float(F.cross_entropy(logits[None], target[None], ignore_index=IGNORE_INDEX)))
-        pred = logits.argmax(0).to(torch.uint8).cpu().numpy()
+            losses.append(float(F.nll_loss(probs.clamp_min(1e-12).log()[None], target[None],
+                                           ignore_index=IGNORE_INDEX)))
+        pred = probs.argmax(0).to(torch.uint8).numpy()
         preds[s.stem] = pred
         cm += confusion_matrix(s.labels, pred, k)
     metrics = metrics_from_confusion(cm, class_names)

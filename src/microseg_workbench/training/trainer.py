@@ -35,7 +35,8 @@ from ..core.imageio import encode_png
 from ..core.render import overlay, tile_grid, to_display_rgb
 from ..core.workspace import Workspace
 from .config import TrainConfig
-from .data import Sample, epoch_batches, load_split
+from ..core.preprocess import Preprocess
+from .data import Sample, epoch_batches, load_split, to_training_samples
 from .device import choose_device, cuda_diagnosis, is_out_of_memory, probe_batch_size
 from .engine import evaluate, load_checkpoint, save_checkpoint, segmentation_loss
 from .model import ModelConfig, UNet, count_parameters
@@ -187,10 +188,15 @@ def _execute(run: RunDir, cfg: TrainConfig, workspace: Workspace, on_event: Even
         if problems:
             raise ValueError(f"Dataset {cfg.dataset_id} failed its integrity check: {problems[:5]}")
         class_map = version.class_map
-        train, val, test = (load_split(version, s) for s in ("train", "val", "test"))
-        if not train:
+        train_full, val, test = (load_split(version, s) for s in ("train", "val", "test"))
+        if not train_full:
             raise ValueError("The training split is empty.")
-        channels = {s.image.shape[2] for s in train + val + test}
+        prep = cfg.preprocess()
+        train = to_training_samples(train_full, prep)
+        too_small = [s.stem for s in train if min(s.labels.shape) < 8]
+        if too_small:
+            raise ValueError(f"Resize factor {prep.resize_factor} makes images too small: {too_small[:3]}")
+        channels = {s.image.shape[2] for s in train_full + val + test}
         if len(channels) != 1:
             raise ValueError(f"Mixed channel counts in dataset: {channels}")
         in_channels = channels.pop()
@@ -219,7 +225,7 @@ def _execute(run: RunDir, cfg: TrainConfig, workspace: Workspace, on_event: Even
         scaler = torch.amp.GradScaler("cuda", enabled=use_amp)
 
         fixed_source = "val" if val else "train"
-        fixed = (val or train)[: cfg.fixed_samples]
+        fixed = (val or train_full)[: cfg.fixed_samples]
         best_score: float | None = None
         best_epoch, step, start_epoch = 0, 0, 1
 
@@ -273,7 +279,8 @@ def _execute(run: RunDir, cfg: TrainConfig, workspace: Workspace, on_event: Even
         for epoch in range(start_epoch, total_epochs + 1):
             epoch_start = time.monotonic()
             model.train()
-            batches = epoch_batches(train, cfg.augment, cfg.patches_per_image, batch_size, cfg.seed, epoch)
+            batches = epoch_batches(train, cfg.augment, cfg.patches_per_image, batch_size, cfg.seed, epoch,
+                                    prep.normalization)
             losses = []
             for bi, (xb, yb) in enumerate(batches, 1):
                 if run.cancel_requested():
@@ -319,9 +326,10 @@ def _execute(run: RunDir, cfg: TrainConfig, workspace: Workspace, on_event: Even
                           **sampler.latest()})
 
             train_loss = float(np.mean(losses)) if losses else None
-            val_metrics, val_loss, preds = evaluate(model, val, device, class_map.names) if val else (None, None, {})
+            val_metrics, val_loss, preds = (evaluate(model, val, device, class_map.names, prep) if val
+                                            else (None, None, {}))
             if fixed and fixed_source == "train":
-                _, _, preds = evaluate(model, fixed, device, class_map.names)
+                _, _, preds = evaluate(model, fixed, device, class_map.names, prep)
             sample_files = _save_fixed_samples(run, epoch, fixed, preds, class_map)
             score = (val_metrics["mean_iou_foreground"] if val_metrics and val_metrics["mean_iou_foreground"] is not None
                      else (-train_loss if train_loss is not None else None))
@@ -330,6 +338,7 @@ def _execute(run: RunDir, cfg: TrainConfig, workspace: Workspace, on_event: Even
                 best_score, best_epoch = score, epoch
             meta = {"run_id": run.run_id, "epoch": epoch, "dataset_id": version.dataset_id,
                     "class_map": class_map.to_dict(), "normalization": cfg.normalization,
+                    "preprocess": prep.to_dict(),
                     "val_mean_iou_foreground": val_metrics["mean_iou_foreground"] if val_metrics else None}
             if improved:
                 save_checkpoint(run.checkpoints / "best.pt", model, meta)
@@ -380,7 +389,8 @@ def evaluate_run(run: RunDir, workspace: Workspace, device: torch.device | None 
         raise ValueError("Checkpoint class map differs from the dataset's; refusing to evaluate.")
     split = "test" if version.samples("test") else "val"
     samples = load_split(version, split)
-    metrics, loss, preds = evaluate(model, samples, device, class_map.names) if samples else (None, None, {})
+    prep = Preprocess.from_meta(ckpt)
+    metrics, loss, preds = evaluate(model, samples, device, class_map.names, prep) if samples else (None, None, {})
     for s in samples:
         tile = tile_grid([to_display_rgb(s.image), overlay(s.image, s.labels, class_map),
                           overlay(s.image, preds[s.stem], class_map)], columns=3)
@@ -397,6 +407,8 @@ def evaluate_run(run: RunDir, workspace: Workspace, device: torch.device | None 
         "images": [s.stem for s in samples],
         "loss": loss,
         "metrics": metrics,
+        "preprocess": prep.to_dict(),
+        "resolution": "metrics computed at original image resolution against original masks",
         "overlay_layout": "image | ground truth | prediction",
         "prediction_masks": "evaluation/<stem>_pred_mask.png hold class values from the class map",
         "review_status": "unreviewed",

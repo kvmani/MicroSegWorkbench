@@ -6,6 +6,7 @@ from dataclasses import asdict, dataclass, field, fields, replace
 from typing import Any
 
 from ..core.augment import AugmentConfig
+from ..core.preprocess import Preprocess, PreprocessError
 
 
 class TrainConfigError(ValueError):
@@ -26,7 +27,8 @@ class TrainConfig:
     device: str = "auto"
     num_threads: int = 0  # 0 = PyTorch default
     fixed_samples: int = 3
-    normalization: str = "dtype_range"
+    normalization: str = "dtype_range"  # or per_image_standardize
+    resize_factor: float = 1.0  # images (not masks' meaning) are scaled by this before the model
     loss: str = "cross_entropy_dice"  # cross_entropy | cross_entropy_dice (Dice helps rare classes)
     mixed_precision: str = "auto"  # auto = on for CUDA GPUs, off on CPU; "on" / "off" force it
     augment: AugmentConfig = field(default_factory=AugmentConfig)
@@ -44,12 +46,18 @@ class TrainConfig:
             (1 <= self.depth <= 5, "depth must be between 1 and 5"),
             (self.patches_per_image >= 1, "patches per image must be at least 1"),
             (self.fixed_samples >= 0, "fixed samples must not be negative"),
-            (self.normalization == "dtype_range", "only 'dtype_range' normalization is implemented"),
             (self.augment.patch_size % 2 ** self.depth == 0, "patch size must be divisible by 2^depth"),
         ]
         for ok, message in checks:
             if not ok:
                 raise TrainConfigError(message)
+        try:
+            self.preprocess()
+        except PreprocessError as exc:
+            raise TrainConfigError(str(exc)) from exc
+
+    def preprocess(self) -> Preprocess:
+        return Preprocess(resize_factor=self.resize_factor, normalization=self.normalization)
 
     def to_dict(self) -> dict[str, Any]:
         out = asdict(self)

@@ -10,13 +10,25 @@ from ..core.augment import IGNORE_INDEX, AugmentConfig, augment
 from ..core.classes import ClassMap
 from ..core.dataset import DatasetVersion
 from ..core.imageio import load_image, load_mask_values, to_unit_float
+from ..core.preprocess import Preprocess, image_stats, normalize, resize_image, resize_labels
 
 
 @dataclass(frozen=True)
 class Sample:
     stem: str
-    image: np.ndarray  # float32 (H, W, C) in model units
+    image: np.ndarray  # float32 (H, W, C) in [0, 1] (dtype-range scaled)
     labels: np.ndarray  # uint8 (H, W) model channel indices, IGNORE_INDEX for ignored
+    stats: tuple[np.ndarray, np.ndarray] | None = None  # whole-image mean/std at model scale
+
+
+def to_training_samples(samples: list[Sample], prep: Preprocess) -> list[Sample]:
+    """Resize to model scale and record whole-image statistics for normalization."""
+    out = []
+    for s in samples:
+        shape = prep.scaled_shape(*s.labels.shape)
+        image = resize_image(s.image, shape)
+        out.append(Sample(s.stem, image, resize_labels(s.labels, shape), image_stats(image)))
+    return out
 
 
 def value_to_channel_lut(class_map: ClassMap) -> np.ndarray:
@@ -38,7 +50,7 @@ def load_split(version: DatasetVersion, split: str) -> list[Sample]:
 
 
 def epoch_batches(samples: list[Sample], cfg: AugmentConfig, patches_per_image: int, batch_size: int,
-                  seed: int, epoch: int) -> list[tuple[np.ndarray, np.ndarray]]:
+                  seed: int, epoch: int, normalization: str = "dtype_range") -> list[tuple[np.ndarray, np.ndarray]]:
     """Deterministic augmented batches for one epoch: (N, C, P, P) float32 and (N, P, P) int64."""
     order = [(i, r) for i in range(len(samples)) for r in range(patches_per_image)]
     perm = np.random.default_rng([seed, epoch, 0]).permutation(len(order))
@@ -49,7 +61,7 @@ def epoch_batches(samples: list[Sample], cfg: AugmentConfig, patches_per_image: 
             i, r = order[j]
             rng = np.random.default_rng([seed, epoch, 1, i, r])
             img, lab, _ = augment(samples[i].image, samples[i].labels, cfg, rng)
-            imgs.append(img.transpose(2, 0, 1))
+            imgs.append(normalize(img, normalization, samples[i].stats).transpose(2, 0, 1))
             labs.append(lab)
         batches.append((np.stack(imgs).astype(np.float32), np.stack(labs).astype(np.int64)))
     return batches

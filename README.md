@@ -2,10 +2,11 @@
 
 Collaborative, reproducible machine-learning workbench for scientific microstructure segmentation.
 
-**Status:** Phase 1 (local vertical slice) implemented and tested on synthetic data on Linux/CPU:
-data checking -> immutable dataset version with leakage-safe split -> augmentation preview -> real model
-training with live progress -> unreviewed test-set evaluation, in a desktop UI and a CLI.
-Not yet verified on Windows or on a GPU. See [PROGRESS](docs/PROGRESS.md) for evidence and known gaps.
+**Status:** Phases 1-2 implemented and tested on synthetic data on Linux/CPU:
+data checking -> immutable dataset version with leakage-safe split -> preprocessing and augmentation preview ->
+real model training with live progress, resource monitoring, resume and GPU safety -> unreviewed test-set
+evaluation, run comparison and segmentation of new images, in a desktop UI and a CLI.
+Not yet verified on Windows or on a real GPU. See [PROGRESS](docs/PROGRESS.md) for evidence and known gaps.
 
 Start with [the specification](docs/SPECIFICATION.md). Coding agents follow [AGENTS.md](AGENTS.md); independent reviewers follow [REVIEW.md](REVIEW.md).
 
@@ -34,10 +35,14 @@ Workspace folder (datasets and runs) defaults to `~/MicroSegWorkbench-workspace`
 | `msw demo-data [--out DIR]` | Write SYNTHETIC micrographs, masks and `classes.json` |
 | `msw validate FOLDER [--group-regex R]` | Check pairing, sizes, class values, duplicates, groups |
 | `msw prepare FOLDER --name N [--train/--val/--test/--seed]` | Create an immutable dataset version |
-| `msw datasets` / `msw runs` / `msw devices` | List dataset versions, runs, compute devices |
+| `msw datasets` / `msw runs` | List dataset versions and runs |
 | `msw preview-aug DATASET --out p.png [--augment cfg.json]` | Augmentation preview image |
-| `msw train DATASET [--preset quick_cpu\|standard] [--config cfg.json]` | Train, then evaluate on the test split |
+| `msw train DATASET [--preset quick_cpu\|standard\|large_gpu] [--config cfg.json]` | Train, then evaluate on the test split |
+| `msw resume RUN` | Continue a cancelled, failed or interrupted run exactly where it stopped |
 | `msw evaluate RUN` | Re-evaluate a run's best checkpoint |
+| `msw compare RUN RUN... [--csv f]` | Compare runs (warns if test sets differ) |
+| `msw predict RUN FOLDER --out NEW` | Segment new images (masks, overlays, predictions.json) |
+| `msw devices` | CPU/GPU, CUDA diagnosis, live GPU readings |
 
 ### Input folder format
 `<stem>.png|tif|jpg|bmp` micrographs, `<stem>_mask.png` masks (same size, lossless) and a `classes.json`

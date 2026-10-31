@@ -1,8 +1,8 @@
 """Step 3: train a model and watch it learn.
 
-Training runs in a separate Python process (``msw train``) so the window stays
-responsive and a crash in training cannot take the UI down. This page tails the
-run's ``events.jsonl`` / ``status.json`` files - the same records the CLI writes.
+Training runs in a separate Python process (``msw train`` / ``msw resume``) so the
+window stays responsive and a crash in training cannot take the UI down. This page
+tails the run's ``events.jsonl`` / ``status.json`` files - the same records the CLI writes.
 """
 
 from __future__ import annotations
@@ -16,21 +16,23 @@ from typing import Any, Callable
 from PySide6.QtCore import QProcess, QProcessEnvironment, Qt, QTimer
 from PySide6.QtGui import QPixmap
 from PySide6.QtWidgets import (
-    QComboBox, QDoubleSpinBox, QFormLayout, QGroupBox, QHBoxLayout, QLabel, QProgressBar, QPushButton, QSlider,
-    QSpinBox, QVBoxLayout, QWidget,
+    QComboBox, QDoubleSpinBox, QFormLayout, QGridLayout, QGroupBox, QHBoxLayout, QLabel, QProgressBar, QPushButton,
+    QSlider, QSpinBox, QTabWidget, QVBoxLayout, QWidget,
 )
 
 from ..core.augment import AugmentConfig, AugmentConfigError
 from ..core.dataset import list_dataset_versions
 from ..training.config import PRESETS, TrainConfigError, preset_config
-from ..training.runs import TERMINAL_STATES, EventTail, RunDir, new_run_id
+from ..training.runs import ACTIVE_STATES, TERMINAL_STATES, EventTail, RunDir, new_run_id
 from .context import AppContext
 from .widgets import ImageView, LineChart, hint, run_background
 
-HELP = ("<b>Step 3 - Training.</b> Choose a dataset version and a preset. <i>Quick CPU</i> trains a tiny model in "
-        "about a minute on any computer; <i>Standard</i> is meant for a GPU. The charts update after every epoch, "
-        "and the images below show how the model's prediction on the same validation images improves. "
-        "<b>Cancel</b> stops after the current step and keeps the last saved checkpoint.")
+HELP = ("<b>Step 3 - Training.</b> Choose a dataset version and a preset. <i>Quick CPU</i> trains a small model in "
+        "about a minute on any computer; <i>Standard</i> and <i>Large GPU</i> are meant for NVIDIA GPUs and pick the "
+        "batch size automatically to fit GPU memory. Charts update after every epoch; the <i>Prediction evolution</i> "
+        "tab shows the model's output on the same validation images after each epoch, and <i>Computer resources</i> "
+        "shows CPU, memory and GPU use. <b>Cancel</b> stops after the current step; a stopped run can be resumed "
+        "from step 4.")
 
 
 def _fmt_seconds(s: float | None) -> str:
@@ -40,11 +42,42 @@ def _fmt_seconds(s: float | None) -> str:
     return f"{s // 3600}h {s % 3600 // 60:02d}m" if s >= 3600 else f"{s // 60}m {s % 60:02d}s"
 
 
+class MemoryBar(QWidget):
+    """Label + bar for a used/total memory figure."""
+
+    def __init__(self, title: str) -> None:
+        super().__init__()
+        self.title = QLabel(title)
+        self.bar = QProgressBar()
+        self.bar.setRange(0, 1000)
+        self.bar.setTextVisible(True)
+        layout = QHBoxLayout(self)
+        layout.setContentsMargins(0, 0, 0, 0)
+        self.title.setMinimumWidth(170)
+        layout.addWidget(self.title)
+        layout.addWidget(self.bar, 1)
+        self.set(None, None)
+
+    def set(self, used: float | None, total: float | None, unit: str = "MB", suffix: str = "") -> None:
+        if used is None:
+            self.bar.setValue(0)
+            self.bar.setFormat("not available")
+            return
+        if total:
+            self.bar.setValue(int(1000 * min(1.0, used / total)))
+            self.bar.setFormat(f"{used:,.0f} / {total:,.0f} {unit}{suffix}")
+        else:
+            self.bar.setValue(0)
+            self.bar.setFormat(f"{used:,.0f} {unit}{suffix}")
+
+
 class TrainPage(QWidget):
-    def __init__(self, ctx: AppContext, augment_config: Callable[[], AugmentConfig]) -> None:
+    def __init__(self, ctx: AppContext, augment_config: Callable[[], AugmentConfig],
+                 preprocess: Callable[[], Any] | None = None) -> None:
         super().__init__()
         self.ctx = ctx
         self.augment_config = augment_config
+        self.preprocess = preprocess
         self.process: QProcess | None = None
         self.run: RunDir | None = None
         self.tail: EventTail | None = None
@@ -52,18 +85,22 @@ class TrainPage(QWidget):
         self.fixed_stems: list[str] = []
         self.epochs_seen: list[int] = []
         self.final_state: str | None = None
+        self.t0: float | None = None
 
         self.dataset = QComboBox()
         self.preset = QComboBox()
-        for name, values in PRESETS.items():
-            self.preset.addItem(name.replace("_", " ").title().replace("Cpu", "CPU"), name)
+        for name in PRESETS:
+            self.preset.addItem(name.replace("_", " ").title().replace("Cpu", "CPU").replace("Gpu", "GPU"), name)
         self.preset.currentIndexChanged.connect(self._apply_preset)
         self.preset_note = QLabel("")
         self.preset_note.setWordWrap(True)
         self.epochs = QSpinBox()
         self.epochs.setRange(1, 10000)
         self.batch = QSpinBox()
-        self.batch.setRange(1, 512)
+        self.batch.setRange(0, 512)
+        self.batch.setSpecialValueText("Automatic")
+        self.batch.setToolTip("Images per training step. 'Automatic' (0) picks the largest size that fits in GPU "
+                              "memory (8 on CPU).")
         self.lr = QDoubleSpinBox()
         self.lr.setDecimals(5)
         self.lr.setRange(1e-5, 0.5)
@@ -71,10 +108,19 @@ class TrainPage(QWidget):
         self.seed = QSpinBox()
         self.seed.setRange(0, 2**31 - 1)
         self.seed.setValue(1234)
+        self.loss = QComboBox()
+        self.loss.addItem("Cross-entropy + Dice (good for rare features)", "cross_entropy_dice")
+        self.loss.addItem("Cross-entropy only", "cross_entropy")
         self.device = QComboBox()
         self.device.addItem("Automatic (GPU if available)", "auto")
         self.device.addItem("CPU", "cpu")
         self.device.addItem("NVIDIA GPU (CUDA)", "cuda")
+        self.precision = QComboBox()
+        self.precision.addItem("Automatic (on for GPU)", "auto")
+        self.precision.addItem("Off (full precision)", "off")
+        self.precision.addItem("On (GPU only)", "on")
+        self.precision.setToolTip("Mixed precision roughly halves GPU memory use and speeds up training on modern "
+                                  "NVIDIA GPUs. It is recorded with the run.")
         self.device_info = QLabel("Detecting devices...")
         self.device_info.setWordWrap(True)
         self.start_btn = QPushButton("Start training")
@@ -91,8 +137,10 @@ class TrainPage(QWidget):
         form.addRow("Epochs:", self.epochs)
         form.addRow("Batch size:", self.batch)
         form.addRow("Learning rate:", self.lr)
+        form.addRow("Loss:", self.loss)
         form.addRow("Random seed:", self.seed)
         form.addRow("Device:", self.device)
+        form.addRow("Mixed precision:", self.precision)
         form.addRow(self.device_info)
         buttons = QHBoxLayout()
         buttons.addWidget(self.start_btn)
@@ -111,6 +159,7 @@ class TrainPage(QWidget):
         charts.addWidget(self.loss_chart)
         charts.addWidget(self.iou_chart)
 
+        # prediction evolution tab
         self.sample_pick = QComboBox()
         self.sample_pick.currentIndexChanged.connect(self._show_evolution)
         self.epoch_slider = QSlider(Qt.Orientation.Horizontal)
@@ -119,7 +168,7 @@ class TrainPage(QWidget):
         self.epoch_label = QLabel("epoch -")
         self.truth_view = ImageView("Ground truth")
         self.pred_view = ImageView("Prediction")
-        evo = QGroupBox("Prediction evolution on fixed validation images (left: image | truth, right: prediction)")
+        evo = QWidget()
         ev = QVBoxLayout(evo)
         pick = QHBoxLayout()
         pick.addWidget(QLabel("Image:"))
@@ -130,14 +179,36 @@ class TrainPage(QWidget):
         views.addWidget(self.truth_view, 2)
         views.addWidget(self.pred_view, 1)
         ev.addLayout(pick)
+        ev.addWidget(QLabel("Left: image | ground truth. Right: prediction at the chosen epoch."))
         ev.addLayout(views, 1)
+
+        # resources tab
+        self.util_chart = LineChart("Utilisation (%)", "%", (0.0, 100.0), x_label="minutes")
+        self.ram_bar = MemoryBar("Training process RAM")
+        self.sys_ram_bar = MemoryBar("Computer RAM in use")
+        self.vram_bar = MemoryBar("GPU memory")
+        self.throughput = QLabel("")
+        self.sim_label = QLabel("")
+        res = QWidget()
+        rl = QVBoxLayout(res)
+        grid = QGridLayout()
+        for i, w in enumerate((self.ram_bar, self.sys_ram_bar, self.vram_bar)):
+            grid.addWidget(w, i, 0)
+        rl.addLayout(grid)
+        rl.addWidget(self.throughput)
+        rl.addWidget(self.sim_label)
+        rl.addWidget(self.util_chart, 1)
+
+        self.tabs = QTabWidget()
+        self.tabs.addTab(evo, "Prediction evolution")
+        self.tabs.addTab(res, "Computer resources")
 
         right = QVBoxLayout()
         right.addWidget(self.progress)
         right.addWidget(self.status)
         right.addWidget(self.resources)
         right.addLayout(charts, 1)
-        right.addWidget(evo, 1)
+        right.addWidget(self.tabs, 1)
         body = QHBoxLayout()
         body.addWidget(setup)
         body.addLayout(right, 1)
@@ -173,10 +244,10 @@ class TrainPage(QWidget):
 
     def _detect_devices(self) -> None:
         def detect() -> str:
-            from ..training.device import choose_device, detect_devices
+            from ..training.device import choose_device, cuda_diagnosis, detect_devices
 
             labels = [d.label() for d in detect_devices()]
-            return "Found: " + "; ".join(labels) + ". " + choose_device("auto")[2]
+            return "Found: " + "; ".join(labels) + ". " + choose_device("auto")[2] + " " + cuda_diagnosis()
 
         run_background(detect, self.device_info.setText,
                        lambda msg, _d: self.device_info.setText(f"Device detection failed: {msg}. CPU will be used."))
@@ -185,9 +256,20 @@ class TrainPage(QWidget):
         dataset_id = self.dataset.currentData()
         if not dataset_id:
             raise TrainConfigError("Create a dataset version in step 1 first.")
-        return preset_config(self.preset.currentData(), dataset_id, epochs=self.epochs.value(),
-                             batch_size=self.batch.value(), learning_rate=self.lr.value(), seed=self.seed.value(),
-                             device=self.device.currentData(), augment=self.augment_config())
+        overrides = dict(epochs=self.epochs.value(), batch_size=self.batch.value(), learning_rate=self.lr.value(),
+                         seed=self.seed.value(), device=self.device.currentData(), loss=self.loss.currentData(),
+                         mixed_precision=self.precision.currentData())
+        if self.preprocess is not None:
+            prep = self.preprocess()
+            overrides.update(resize_factor=prep.resize_factor, normalization=prep.normalization)
+        preset = self.preset.currentData()
+        augment = self.augment_config()
+        if "patch_size" in PRESETS[preset] and augment.patch_size == AugmentConfig().patch_size:
+            # the preset's larger patch applies unless the user changed patch size in step 2
+            from dataclasses import replace
+
+            augment = replace(augment, patch_size=PRESETS[preset]["patch_size"])
+        return preset_config(preset, dataset_id, augment=augment, **overrides)
 
     # ----- run control -------------------------------------------------------------------------------------
     def is_running(self) -> bool:
@@ -198,7 +280,7 @@ class TrainPage(QWidget):
             return
         try:
             cfg = self.build_config()
-        except (TrainConfigError, AugmentConfigError) as exc:
+        except (TrainConfigError, AugmentConfigError, ValueError) as exc:
             self.ctx.error(self, "Cannot start training", str(exc))
             return
         ws = self.ctx.workspace
@@ -209,14 +291,29 @@ class TrainPage(QWidget):
         payload = cfg.to_dict()
         payload.pop("dataset_id")
         cfg_path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+        self._launch(RunDir(ws.runs_dir / run_id),
+                     ["train", cfg.dataset_id, "--config", str(cfg_path), "--run-id", run_id, "--quiet"])
 
-        self.run = RunDir(ws.runs_dir / run_id)
-        self.tail = EventTail(self.run.events)
+    def resume(self, run: RunDir) -> bool:
+        """Continue a stopped run (called from the Results page)."""
+        if self.is_running():
+            self.ctx.error(self, "Resume", "Another training run is in progress.")
+            return False
+        if not run.resumable():
+            self.ctx.error(self, "Resume", f"Run {run.run_id} cannot be resumed (state: {run.state()}).")
+            return False
+        self._launch(run, ["resume", run.run_id, "--quiet"])
+        return True
+
+    def _launch(self, run: RunDir, args: list[str]) -> None:
+        self.run = run
+        self.tail = EventTail(run.events)
         self.stderr = ""
         self.final_state = None
+        self.t0 = None
         self.fixed_stems, self.epochs_seen = [], []
-        self.loss_chart.clear()
-        self.iou_chart.clear()
+        for chart in (self.loss_chart, self.iou_chart, self.util_chart):
+            chart.clear()
         self.sample_pick.clear()
         self.truth_view.set_pixmap(None)
         self.pred_view.set_pixmap(None)
@@ -231,14 +328,13 @@ class TrainPage(QWidget):
         proc.setProcessEnvironment(env)
         proc.readyReadStandardError.connect(self._read_stderr)
         proc.finished.connect(self._finished)
-        proc.start(sys.executable, ["-m", "microseg_workbench", "--workspace", str(ws.root), "train",
-                                    cfg.dataset_id, "--config", str(cfg_path), "--run-id", run_id, "--quiet"])
+        proc.start(sys.executable, ["-m", "microseg_workbench", "--workspace", str(self.ctx.workspace.root), *args])
         self.process = proc
         self.start_btn.setEnabled(False)
         self.cancel_btn.setEnabled(True)
         self.cancel_btn.setText("Cancel")
         self.timer.start()
-        self.ctx.status_message.emit(f"Training started: {run_id}")
+        self.ctx.status_message.emit(f"Training {'resumed' if args[0] == 'resume' else 'started'}: {run.run_id}")
 
     def cancel(self) -> None:
         if not self.is_running() or self.run is None:
@@ -250,7 +346,6 @@ class TrainPage(QWidget):
         elif self.ctx.confirm(self, "Stop immediately", "Kill the training process now? Work since the last "
                                                         "epoch is lost."):
             self.process.kill()
-            self.run.write_status(state="cancelled", message="Stopped immediately by user; last epoch checkpoint kept.")
 
     def _read_stderr(self) -> None:
         if self.process:
@@ -263,8 +358,13 @@ class TrainPage(QWidget):
         self.poll()
         self.start_btn.setEnabled(True)
         self.cancel_btn.setEnabled(False)
-        state = self.run.status().get("state") if self.run else None
+        state = self.run.state() if self.run else None
+        if state in ACTIVE_STATES or state == "interrupted":
+            self.run.write_status(state="cancelled", total_epochs=self.run.status().get("total_epochs"),
+                                  message="Training process was stopped. The last completed epoch can be resumed.")
+            state = "cancelled"
         self.final_state = state if state in TERMINAL_STATES else "failed"
+        self.poll()
         if self.final_state == "failed":
             message = (self.run.status().get("message") if self.run else None) or "The training process stopped."
             self.status.setText(f"<span style='color:#b42318'><b>Training failed:</b> {message}</span>")
@@ -285,7 +385,8 @@ class TrainPage(QWidget):
             frac = ((max(epoch, 1) - 1) + batch / batches) / max(1, total) if state == "running" else \
                 (1.0 if state == "evaluating" else 0.0)
             self.progress.setValue(int(100 * frac))
-            self.status.setText(f"{status.get('message', '')} - batch {batch}/{batches} - "
+            loss = f" - current loss {status['loss']:.4f}" if status.get("loss") is not None else ""
+            self.status.setText(f"{status.get('message', '')} - batch {batch}/{batches}{loss} - "
                                 f"time left about {_fmt_seconds(status.get('eta_s'))}" if state == "running"
                                 else status.get("message", ""))
         elif state in TERMINAL_STATES:
@@ -296,37 +397,64 @@ class TrainPage(QWidget):
 
     def _handle(self, event: dict[str, Any]) -> None:
         kind = event["type"]
-        if kind == "start":
-            self.resources.setText(f"<b>Device:</b> {event['device']}. {event['note']}")
+        if kind in ("start", "resume"):
+            extra = f" Batch size {event['batch_size']}." if "batch_size" in event else ""
+            if event.get("mixed_precision"):
+                extra += " Mixed precision on."
+            self.resources.setText(f"<b>Device:</b> {event['device']}. {event['note']}{extra}")
             info = self.run.info() if self.run else {}
-            self.fixed_stems = info.get("fixed_samples", {}).get("stems", [])
-            self.sample_pick.blockSignals(True)
-            self.sample_pick.clear()
-            self.sample_pick.addItems(self.fixed_stems)
-            self.sample_pick.blockSignals(False)
+            stems = info.get("fixed_samples", {}).get("stems", [])
+            if stems != self.fixed_stems:
+                self.fixed_stems = stems
+                self.sample_pick.blockSignals(True)
+                self.sample_pick.clear()
+                self.sample_pick.addItems(stems)
+                self.sample_pick.blockSignals(False)
         elif kind == "epoch":
             e = event["epoch"]
             self.loss_chart.add_point("training", e, event["train_loss"])
             self.loss_chart.add_point("validation", e, event["val_loss"])
             self.iou_chart.add_point("validation mIoU", e, event["val_mean_iou_foreground"])
-            res = event["resources"]
-            parts = [f"epoch time {event['epoch_seconds']:.1f}s"]
-            if "process_rss_mb" in res:
-                parts.append(f"training process RAM {res['process_rss_mb']:.0f} MB")
-                parts.append(f"system CPU {res['system_cpu_percent']:.0f}%")
-            if "gpu_allocated_mb" in res:
-                parts.append(f"GPU memory {res['gpu_allocated_mb']:.0f} MB (peak {res['gpu_peak_allocated_mb']:.0f})")
-            else:
-                parts.append("GPU: not used")
-            if event.get("is_best"):
-                parts.append(f"best so far (epoch {e})")
-            self.resources.setText(" | ".join(parts) + " (measured)")
-            self.epochs_seen.append(e)
+            if e not in self.epochs_seen:
+                self.epochs_seen.append(e)
             follow = self.epoch_slider.value() == self.epoch_slider.maximum()
-            self.epoch_slider.setRange(1, e)
+            self.epoch_slider.setRange(1, max(self.epochs_seen))
             if follow:
                 self.epoch_slider.setValue(e)
             self._show_evolution()
+            self._show_resources(event["resources"], None)
+        elif kind == "resources":
+            self._show_resources(event, event.get("images_per_s"))
+
+    def _show_resources(self, res: dict[str, Any], images_per_s: float | None) -> None:
+        if self.t0 is None:
+            self.t0 = res.get("time")
+        minutes = ((res.get("time") or 0) - (self.t0 or 0)) / 60.0
+        self.ram_bar.set(res.get("process_rss_mb"), None)
+        if res.get("system_memory_percent") is not None:
+            total = res.get("system_memory_total_mb")
+            self.sys_ram_bar.set(res["system_memory_percent"] / 100 * total if total else None, total)
+        if res.get("system_cpu_percent") is not None:
+            self.util_chart.add_point("CPU", minutes, res["system_cpu_percent"])
+        gpus = res.get("gpus") or []
+        if gpus:
+            g = gpus[0]
+            sim = " (SIMULATED)" if g.get("simulated") else ""
+            self.vram_bar.set(g.get("memory_used_mb"), g.get("memory_total_mb"), suffix=sim)
+            if g.get("utilization_percent") is not None:
+                self.util_chart.add_point("GPU" + sim, minutes, g["utilization_percent"])
+            self.sim_label.setText("<span style='color:#8a5a00'><b>GPU figures are SIMULATED</b> "
+                                   "(test mode, no GPU hardware).</span>" if g.get("simulated") else
+                                   f"GPU: {g.get('name')} - temperature {g.get('temperature_c')} C - via "
+                                   f"{g.get('source')}")
+        elif res.get("torch_gpu_allocated_mb") is not None:
+            self.vram_bar.set(res["torch_gpu_allocated_mb"], None, suffix=" allocated by PyTorch")
+        else:
+            self.vram_bar.set(None, None)
+            self.sim_label.setText("GPU: not used for this run.")
+        if images_per_s is not None:
+            self.throughput.setText(f"Throughput: {images_per_s:.1f} training patches per second. "
+                                    "All figures are measured on this computer unless marked SIMULATED.")
 
     def _show_evolution(self) -> None:
         if not self.run or not self.sample_pick.currentText() or not self.epochs_seen:

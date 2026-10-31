@@ -138,6 +138,7 @@ class ResourceSampler:
         return self
 
     def _loop(self) -> None:
+        self._stop.wait(min(0.5, self.interval_s))  # CPU percentages need a measuring interval
         while not self._stop.is_set():
             snap = sample_system(self.torch_device)
             with self._lock:
@@ -146,7 +147,11 @@ class ResourceSampler:
 
     def latest(self) -> dict[str, Any]:
         with self._lock:
-            return dict(self._latest) if self._latest else sample_system(self.torch_device)
+            if self._latest:
+                return dict(self._latest)
+        snap = sample_system(self.torch_device)
+        snap.pop("system_cpu_percent", None)  # no interval measured yet; omit rather than report 0 %
+        return snap
 
     def stop(self) -> None:
         self._stop.set()
