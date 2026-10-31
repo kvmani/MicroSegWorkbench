@@ -128,6 +128,12 @@ class TrainPage(QWidget):
         self.precision.addItem("On (GPU only)", "on")
         self.precision.setToolTip("Mixed precision roughly halves GPU memory use and speeds up training on modern "
                                   "NVIDIA GPUs. It is recorded with the run.")
+        self.in_memory = QSpinBox()
+        self.in_memory.setRange(0, 100000)
+        self.in_memory.setSpecialValueText("All")
+        self.in_memory.setToolTip("How many training images are kept in memory at once. 'All' is fastest. For "
+                                  "datasets larger than the computer's memory, set a number: images are then processed "
+                                  "in blocks of that size (recorded with the run, so results stay reproducible).")
         self.device_info = QLabel("Detecting devices...")
         self.device_info.setWordWrap(True)
         self.start_btn = QPushButton("Start training")
@@ -148,6 +154,7 @@ class TrainPage(QWidget):
         form.addRow("Random seed:", self.seed)
         form.addRow("Device:", self.device)
         form.addRow("Mixed precision:", self.precision)
+        form.addRow("Images in memory:", self.in_memory)
         form.addRow(self.device_info)
         buttons = QHBoxLayout()
         buttons.addWidget(self.start_btn)
@@ -265,7 +272,7 @@ class TrainPage(QWidget):
             raise TrainConfigError("Create a dataset version in step 1 first.")
         overrides = dict(epochs=self.epochs.value(), batch_size=self.batch.value(), learning_rate=self.lr.value(),
                          seed=self.seed.value(), device=self.device.currentData(), loss=self.loss.currentData(),
-                         mixed_precision=self.precision.currentData())
+                         mixed_precision=self.precision.currentData(), images_in_memory=self.in_memory.value())
         if self.preprocess is not None:
             prep = self.preprocess()
             overrides.update(resize_factor=prep.resize_factor, normalization=prep.normalization)

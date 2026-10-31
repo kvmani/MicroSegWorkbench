@@ -30,6 +30,7 @@ class TrainConfig:
     normalization: str = "dtype_range"  # or per_image_standardize
     resize_factor: float = 1.0  # images (not masks' meaning) are scaled by this before the model
     loss: str = "cross_entropy_dice"  # cross_entropy | cross_entropy_dice (Dice helps rare classes)
+    images_in_memory: int = 0  # 0 = whole training split in memory; N = process the split in blocks of N images
     mixed_precision: str = "auto"  # auto = on for CUDA GPUs, off on CPU; "on" / "off" force it
     augment: AugmentConfig = field(default_factory=AugmentConfig)
     preset: str = "custom"
@@ -46,6 +47,7 @@ class TrainConfig:
             (1 <= self.depth <= 5, "depth must be between 1 and 5"),
             (self.patches_per_image >= 1, "patches per image must be at least 1"),
             (self.fixed_samples >= 0, "fixed samples must not be negative"),
+            (self.images_in_memory >= 0, "images in memory must be 0 (all) or more"),
             (self.augment.patch_size % 2 ** self.depth == 0, "patch size must be divisible by 2^depth"),
         ]
         for ok, message in checks:

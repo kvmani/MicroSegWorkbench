@@ -25,7 +25,6 @@ from typing import Any, Callable
 import numpy as np
 import torch
 import torch.nn.functional as F
-from PIL import Image
 
 from .. import TOOL_ID, __version__
 from ..core.atomic import sha256_file, write_bytes_atomic, write_json_atomic
@@ -36,7 +35,7 @@ from ..core.render import overlay, tile_grid, to_display_rgb
 from ..core.workspace import Workspace
 from .config import TrainConfig
 from ..core.preprocess import Preprocess
-from .data import Sample, epoch_batches, load_split, to_training_samples
+from .data import Sample, SplitSource, count_batches, iter_epoch_batches, prefetch
 from .device import choose_device, cuda_diagnosis, is_out_of_memory, probe_batch_size
 from .engine import evaluate, load_checkpoint, save_checkpoint, segmentation_loss
 from .model import ModelConfig, UNet, count_parameters
@@ -135,6 +134,24 @@ def _resolve_batch_size(cfg: TrainConfig, model: UNet, device: torch.device, cha
     return found, attempts
 
 
+def _check_memory(train: SplitSource, val: SplitSource | None, cfg: TrainConfig) -> None:
+    """Refuse early, with advice, when keeping the data in memory would exhaust the computer's RAM."""
+    need = train.estimated_bytes() + (val.estimated_bytes() if val is not None else 0)
+    try:
+        import psutil
+
+        available = psutil.virtual_memory().available
+    except ImportError:
+        return
+    if need > 0.6 * available:
+        per_image = max(1, train.estimated_bytes() // max(1, len(train)))
+        suggestion = max(1, int(0.3 * available // per_image))
+        raise MemoryError(
+            f"Keeping all {len(train)} training images in memory needs about {need / 2**30:.1f} GB, but only "
+            f"{available / 2**30:.1f} GB is free. Set 'images in memory' to about {suggestion} (or reduce the resize "
+            "factor) so the data are processed in blocks.")
+
+
 def run_training(cfg: TrainConfig, workspace: Workspace, run_id: str | None = None,
                  on_event: EventCallback | None = None) -> RunDir:
     """Start a new run: train, keep best/last checkpoints, then evaluate the best model on the test split."""
@@ -188,15 +205,19 @@ def _execute(run: RunDir, cfg: TrainConfig, workspace: Workspace, on_event: Even
         if problems:
             raise ValueError(f"Dataset {cfg.dataset_id} failed its integrity check: {problems[:5]}")
         class_map = version.class_map
-        train_full, val, test = (load_split(version, s) for s in ("train", "val", "test"))
-        if not train_full:
-            raise ValueError("The training split is empty.")
         prep = cfg.preprocess()
-        train = to_training_samples(train_full, prep)
-        too_small = [s.stem for s in train if min(s.labels.shape) < 8]
+        keep_all = cfg.images_in_memory == 0
+        train = SplitSource(version, "train", prep, max_cached=None if keep_all else cfg.images_in_memory)
+        val = SplitSource(version, "val", max_cached=None if keep_all else 0)
+        test_count = len(version.samples("test"))
+        if not len(train):
+            raise ValueError("The training split is empty.")
+        _check_memory(train, val if keep_all else None, cfg)
+        too_small = [r["stem"] for r in train.records
+                     if min(prep.scaled_shape(r["height"], r["width"])) < 8]
         if too_small:
             raise ValueError(f"Resize factor {prep.resize_factor} makes images too small: {too_small[:3]}")
-        channels = {s.image.shape[2] for s in train_full + val + test}
+        channels = train.channels() | val.channels() | {int(r["channels"]) for r in version.samples("test")}
         if len(channels) != 1:
             raise ValueError(f"Mixed channel counts in dataset: {channels}")
         in_channels = channels.pop()
@@ -224,8 +245,9 @@ def _execute(run: RunDir, cfg: TrainConfig, workspace: Workspace, on_event: Even
         scheduler = torch.optim.lr_scheduler.LambdaLR(optimizer, lr_schedule(steps_per_epoch * total_epochs))
         scaler = torch.amp.GradScaler("cuda", enabled=use_amp)
 
-        fixed_source = "val" if val else "train"
-        fixed = (val or train_full)[: cfg.fixed_samples]
+        fixed_source = "val" if len(val) else "train"
+        fixed_split = SplitSource(version, fixed_source, max_cached=0)
+        fixed = [fixed_split.get(i) for i in range(min(cfg.fixed_samples, len(fixed_split)))]
         best_score: float | None = None
         best_epoch, step, start_epoch = 0, 0, 1
 
@@ -253,7 +275,7 @@ def _execute(run: RunDir, cfg: TrainConfig, workspace: Workspace, on_event: Even
                 "model": model_cfg.to_dict() | {"parameters": count_parameters(model)},
                 "dataset": {"dataset_id": version.dataset_id,
                             "manifest_sha256": sha256_file(version.root / MANIFEST_FILENAME),
-                            "split_counts": {"train": len(train), "val": len(val), "test": len(test)}},
+                            "split_counts": {"train": len(train), "val": len(val), "test": test_count}},
                 "class_map": class_map.to_dict(),
                 "device": device_info.to_dict() | {"note": device_note, "cuda": cuda_diagnosis()},
                 "host": platform.node(),
@@ -279,8 +301,9 @@ def _execute(run: RunDir, cfg: TrainConfig, workspace: Workspace, on_event: Even
         for epoch in range(start_epoch, total_epochs + 1):
             epoch_start = time.monotonic()
             model.train()
-            batches = epoch_batches(train, cfg.augment, cfg.patches_per_image, batch_size, cfg.seed, epoch,
-                                    prep.normalization)
+            n_batches = count_batches(len(train), cfg.patches_per_image, batch_size)
+            batches = prefetch(iter_epoch_batches(train, cfg.augment, cfg.patches_per_image, batch_size, cfg.seed,
+                                                  epoch, prep.normalization, cfg.images_in_memory))
             losses = []
             for bi, (xb, yb) in enumerate(batches, 1):
                 if run.cancel_requested():
@@ -312,11 +335,11 @@ def _execute(run: RunDir, cfg: TrainConfig, workspace: Workspace, on_event: Even
                 steps_done_here += 1
                 losses.append(float(loss.detach()))
                 elapsed = time.monotonic() - start
-                remaining = (total_epochs - epoch) * steps_per_epoch + (len(batches) - bi)
+                remaining = (total_epochs - epoch) * steps_per_epoch + (n_batches - bi)
                 eta = elapsed / steps_done_here * remaining
-                emit({"type": "step", "epoch": epoch, "batch": bi, "batches": len(batches), "step": step,
+                emit({"type": "step", "epoch": epoch, "batch": bi, "batches": n_batches, "step": step,
                       "loss": losses[-1], "lr": scheduler.get_last_lr()[0], "elapsed_s": round(elapsed, 3)})
-                status(force=bi == len(batches), state="running", epoch=epoch, batch=bi, batches=len(batches),
+                status(force=bi == n_batches, state="running", epoch=epoch, batch=bi, batches=n_batches,
                        eta_s=round(eta, 1), loss=losses[-1], message=f"Epoch {epoch}/{total_epochs}")
                 now = time.monotonic()
                 if now - last_resource_emit >= 2.0:
@@ -326,8 +349,9 @@ def _execute(run: RunDir, cfg: TrainConfig, workspace: Workspace, on_event: Even
                           **sampler.latest()})
 
             train_loss = float(np.mean(losses)) if losses else None
-            val_metrics, val_loss, preds = (evaluate(model, val, device, class_map.names, prep) if val
-                                            else (None, None, {}))
+            fixed_stems = {f.stem for f in fixed}
+            val_metrics, val_loss, preds = (evaluate(model, val, device, class_map.names, prep, keep=fixed_stems)
+                                            if len(val) else (None, None, {}))
             if fixed and fixed_source == "train":
                 _, _, preds = evaluate(model, fixed, device, class_map.names, prep)
             sample_files = _save_fixed_samples(run, epoch, fixed, preds, class_map)
@@ -388,15 +412,19 @@ def evaluate_run(run: RunDir, workspace: Workspace, device: torch.device | None 
     if class_map.to_dict() != ckpt["class_map"]:
         raise ValueError("Checkpoint class map differs from the dataset's; refusing to evaluate.")
     split = "test" if version.samples("test") else "val"
-    samples = load_split(version, split)
+    source = SplitSource(version, split, max_cached=0)
     prep = Preprocess.from_meta(ckpt)
-    metrics, loss, preds = evaluate(model, samples, device, class_map.names, prep) if samples else (None, None, {})
-    for s in samples:
+    values = np.asarray(class_map.values, np.uint8)
+
+    def save(s: Sample, pred: np.ndarray) -> None:
         tile = tile_grid([to_display_rgb(s.image), overlay(s.image, s.labels, class_map),
-                          overlay(s.image, preds[s.stem], class_map)], columns=3)
+                          overlay(s.image, pred, class_map)], columns=3)
         write_bytes_atomic(run.evaluation / f"{s.stem}.png", encode_png(tile))
-        Image.fromarray(np.asarray(class_map.values, np.uint8)[preds[s.stem]]).save(
-            run.evaluation / f"{s.stem}_pred_mask.png")
+        write_bytes_atomic(run.evaluation / f"{s.stem}_pred_mask.png", encode_png(values[pred]))
+
+    metrics, loss, _ = (evaluate(model, source, device, class_map.names, prep, keep=set(), on_prediction=save)
+                        if len(source) else (None, None, {}))
+    samples = source.records
     report = {
         "run_id": run.run_id,
         "checkpoint": "checkpoints/best.pt",
@@ -404,7 +432,7 @@ def evaluate_run(run: RunDir, workspace: Workspace, device: torch.device | None 
         "dataset_id": version.dataset_id,
         "split": split,
         "note": None if split == "test" else "No test split in this dataset version; validation split reported.",
-        "images": [s.stem for s in samples],
+        "images": [r["stem"] for r in samples],
         "loss": loss,
         "metrics": metrics,
         "preprocess": prep.to_dict(),

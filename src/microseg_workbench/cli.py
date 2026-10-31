@@ -8,7 +8,6 @@ import sys
 from pathlib import Path
 from typing import Any
 
-import numpy as np
 
 from .core.augment import AugmentConfig
 from .core.dataset import DatasetVersion, create_dataset_version, list_dataset_versions, validate_folder

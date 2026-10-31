@@ -54,9 +54,11 @@ and the highest-value gaps (streaming data loader for large datasets, packaged W
 
 ## Verification
 - 2026-10-31, Linux sandbox, Python 3.13.18, torch 2.15.0 (CUDA build, no GPU present), numpy 2.5.3, Pillow 12.3,
-  PySide6 6.12 offscreen: `python -m pytest -q` -> **97 passed, 2 skipped** in ~1.5 min (the 2 skips need HydrideSegmentation);
+  PySide6 6.12 offscreen: `python -m pytest -q` -> **102 passed, 2 skipped** in ~1.5 min (the 2 skips need HydrideSegmentation);
   with `MSW_HYDRIDESEG_PATH=<HydrideSegmentation checkout @ main, v2.0.0>` and scipy 1.18.1 / scikit-image 0.26.0 /
-  matplotlib 3.11.2 installed -> **99 passed**.
+  matplotlib 3.11.2 installed -> **104 passed**.
+  - Data loading: patch order covers every patch once, blocks are local, cached/uncached sources give identical
+    batches, prefetch keeps order/propagates errors/stops cleanly, blocked training deterministic, memory guard.
   - Phase 1 coverage as before (numerical metrics, data integrity, leakage, augmentation alignment, training,
     CLI and UI workflows).
   - Phase 2: resumed run bit-identical to uninterrupted run (losses and final weights); resume refused when completed
@@ -91,8 +93,8 @@ and the highest-value gaps (streaming data loader for large datasets, packaged W
 - Independent scientific review (Phase 4 deliverable) not done - must be a separate reviewer.
 - **Not run on Windows**, nor on an NVIDIA GPU: CUDA paths (auto batch probe, mixed precision, NVML/nvidia-smi
   readings, OOM on real hardware) are only exercised with fakes/simulation.
-- Whole training split is loaded into memory; very large datasets need a streaming loader (Phase 3/4 concern).
-- Augmentation runs in the training process main thread (no worker processes); may bottleneck a fast GPU.
+- Data loading (AD-15): bounded-memory block mode and one background prefetch thread; no multi-process workers,
+  so CPU augmentation may still limit a fast GPU on large patches.
 - Share tested only on a local file system; SMB behaviour (no hard links -> check-then-rename fallback, latency,
   permissions, Windows paths) is untested. No garbage collection of unreferenced blobs.
 - Identity on the share is self-declared (user name); only the optional service authenticates (tokens; no
@@ -111,5 +113,4 @@ None for synthetic development. Needs from the office: a Windows workstation run
    publication: AD-9..AD-11).
 2. Office rehearsal following docs/DEPLOYMENT.md: wheelhouse build, Windows install + `python -m pytest -q`, GPU
    `standard` preset, SMB share with two workstations, VM service, a real OnlineAnnotator export; record results here.
-3. Then, by value: streaming/lazy data loading for large datasets, data-loader worker processes for GPU throughput,
-   share garbage collection of unreferenced blobs, packaged Windows build, ml_server authentication for the service.
+3. Then, by value: multi-process augmentation workers for GPU throughput, share garbage collection of unreferenced blobs, packaged Windows build, ml_server authentication for the service.

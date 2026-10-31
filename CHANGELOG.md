@@ -1,6 +1,8 @@
 # Changelog
 
 ## Unreleased (0.4.0)
+- Large datasets: on-demand loading with an explicit `images_in_memory` block mode, up-front memory check with
+  advice, streaming validation/test evaluation, background batch prefetching (results unchanged by default).
 - Phase 4 integration and deployment:
   - `msw import-oa` / Data page import of OnlineAnnotator exports (all layouts and mask styles) with hash and
     pixel-count verification, exact class numbers and annotation provenance; optional annotator-assigned splits

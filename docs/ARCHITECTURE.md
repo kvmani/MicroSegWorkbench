@@ -152,3 +152,14 @@ on local disk. A frozen build re-launches itself with `--cli` for training. VM: 
 the standard library and the workbench package, port 5080 (8765 is pytex), registrable as an `ml_server_deploy`
 component (manifest entry proposed in docs/DEPLOYMENT.md, not applied there); optional `--public-read` HTML registry
 for an `ml_server` portal tile. Neither reference repository was modified.
+
+## Decisions (post-roadmap hardening, 2026-10-31)
+
+### AD-15 Bounded memory for large datasets
+`SplitSource` decodes samples on demand. Training keeps all training images in memory by default (unchanged batch
+order and results) after an up-front estimate from the manifest; if that would exceed 60 % of free RAM the run is
+refused with a suggested `images_in_memory`. With a limit N, images are shuffled and processed in blocks of N,
+patches shuffled within a block (each image decoded once per epoch). The order depends only on seed, epoch and N -
+never on the machine - and N is part of the recorded config, so resume and re-runs are exact. Validation keeps only
+the fixed-sample predictions; test evaluation streams one image at a time and writes overlays as it goes. Batches
+are prepared one to two steps ahead in a background thread (`prefetch`); errors propagate to the trainer.

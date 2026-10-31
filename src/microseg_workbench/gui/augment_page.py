@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from PySide6.QtWidgets import (
-    QComboBox, QSizePolicy, QDoubleSpinBox, QFormLayout, QGroupBox, QHBoxLayout, QLabel, QPushButton, QSpinBox, QVBoxLayout,
+    QComboBox, QDoubleSpinBox, QFormLayout, QGroupBox, QHBoxLayout, QLabel, QPushButton, QSpinBox, QVBoxLayout,
     QWidget,
 )
 

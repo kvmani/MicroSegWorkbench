@@ -7,7 +7,6 @@ from pathlib import Path
 from typing import Any, Callable
 
 import numpy as np
-import torch
 
 from .. import TOOL_ID, __version__
 from ..core.atomic import publish_dir, sha256_file, staging_dir, write_bytes_atomic, write_json_atomic

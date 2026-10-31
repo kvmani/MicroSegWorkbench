@@ -5,7 +5,7 @@ from __future__ import annotations
 import os
 import uuid
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable, Iterable
 
 import numpy as np
 import torch
@@ -109,9 +109,15 @@ def predict_labels(model: UNet, image: np.ndarray, device: torch.device, prep: P
 
 
 @torch.no_grad()
-def evaluate(model: UNet, samples: list[Sample], device: torch.device, class_names: list[str],
-             prep: Preprocess | None = None) -> tuple[dict[str, Any], float | None, dict[str, np.ndarray]]:
-    """Return (metrics, mean cross-entropy, predictions by stem) over full images at original resolution."""
+def evaluate(model: UNet, samples: Iterable[Sample], device: torch.device, class_names: list[str],
+             prep: Preprocess | None = None, keep: set[str] | None = None,
+             on_prediction: Callable[[Sample, np.ndarray], None] | None = None,
+             ) -> tuple[dict[str, Any], float | None, dict[str, np.ndarray]]:
+    """Metrics, mean cross-entropy and predictions over full images at original resolution.
+
+    Images are processed one at a time. ``keep`` limits which predictions are returned (None = all);
+    ``on_prediction`` receives every (sample, prediction) as it is produced.
+    """
     prep = prep or Preprocess()
     k = len(class_names)
     cm = np.zeros((k, k), dtype=np.int64)
@@ -123,7 +129,10 @@ def evaluate(model: UNet, samples: list[Sample], device: torch.device, class_nam
             losses.append(float(F.nll_loss(probs.clamp_min(1e-12).log()[None], target[None],
                                            ignore_index=IGNORE_INDEX)))
         pred = probs.argmax(0).to(torch.uint8).numpy()
-        preds[s.stem] = pred
+        if keep is None or s.stem in keep:
+            preds[s.stem] = pred
+        if on_prediction is not None:
+            on_prediction(s, pred)
         cm += confusion_matrix(s.labels, pred, k)
     metrics = metrics_from_confusion(cm, class_names)
     return metrics, (float(np.mean(losses)) if losses else None), preds

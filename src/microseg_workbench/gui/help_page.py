@@ -78,6 +78,12 @@ before the last completed epoch.</li>
 from a test mode and are not real.</li>
 </ul>
 
+<h3>Large datasets</h3>
+<p>By default all training images are kept in memory. If they do not fit, training stops at once and suggests a
+value for <i>Images in memory</i>; with a number set, images are processed in blocks of that size and validation
+and test images are read one at a time. The setting is saved with the run, so the same run can be reproduced
+on any computer.</p>
+
 <h3>Stopping and resuming</h3>
 <p>A cancelled run, a failed run or a run whose computer crashed keeps the checkpoint of its last completed epoch.
 Select it in <b>4 Results</b> and press <i>Resume training</i>; it continues exactly where it stopped.</p>
