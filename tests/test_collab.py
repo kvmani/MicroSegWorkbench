@@ -103,7 +103,10 @@ def test_concurrent_processes_store_same_blob(tmp_path):
 
 @pytest.fixture
 def two_workspaces(synthetic_folder, tmp_path):
-    share = SharedStore.create(tmp_path / "share")
+    # With MSW_TEST_SHARE set (Windows CI creates \\localhost\mswshare), the shared folder is on a real network share.
+    network = os.environ.get("MSW_TEST_SHARE")
+    root = Path(network) / f"msw-collab-{os.urandom(4).hex()}" if network else tmp_path / "share"
+    share = SharedStore.create(root)
     alice = Workspace(tmp_path / "alice").ensure()
     bob = Workspace(tmp_path / "bob").ensure()
     report = validate_folder(synthetic_folder, DEFAULT_GROUP_REGEX)

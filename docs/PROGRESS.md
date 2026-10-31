@@ -96,7 +96,11 @@ and the highest-value remaining gaps (packaged Windows build, multi-process augm
   semantics (exclusive create via os.rename, directory publication), QProcess training launch, multi-process blob
   writes and the metadata service on Windows. Run 41245163997 (commit fd01a8e) also passed the **Windows offline
   installer job**: wheelhouse built as in docs/DEPLOYMENT.md, `install.ps1` with `pip --no-index`, quickstart from the
-  installed venv, desktop shortcut present. Still not covered: NVIDIA GPU, SMB share, an interactive desktop session.
+  installed venv, desktop shortcut present. From run 41245688448 the Windows job also creates a real SMB share
+  (`\\localhost\mswshare`) and runs the shared-folder tests through the UNC path; that run **found two SMB-only
+  bugs** (concurrent rename losers got "Access is denied"; lock-file deletion hit sharing violations), fixed in
+  1d62ec0 and green in run 41246145574. Still not covered: NVIDIA GPU, the office file server (permissions,
+  latency, multiple machines), an interactive desktop session.
 - Seed sweep (4 seeds, synthetic): quick preset test feature mIoU 0.956-0.982.
 - UI screenshots of training resources tab (simulated GPU) and compare page inspected manually.
 
@@ -110,8 +114,8 @@ and the highest-value remaining gaps (packaged Windows build, multi-process augm
   readings, OOM on real hardware) are only exercised with fakes/simulation.
 - Data loading (AD-15): bounded-memory block mode and one background prefetch thread; no multi-process workers,
   so CPU augmentation may still limit a fast GPU on large patches.
-- Share tested only on a local file system; SMB behaviour (no hard links -> check-then-rename fallback, latency,
-  permissions, Windows paths) is untested. Unreferenced-blob GC is manual (`msw share gc --unreferenced --apply`).
+- Share tested on local disks and on a Windows SMB loopback share in CI; not yet on the office file server
+  (permissions, latency, several machines at once, Linux CIFS mounts without hard links). Unreferenced-blob GC is manual (`msw share gc --unreferenced --apply`).
 - Identity on the share is self-declared (user name); only the optional service authenticates (tokens; no
   ml_server/LDAP integration yet). Service has no TLS (intended for the intranet VM behind existing services).
 - Packaged (frozen) Windows build would need a different training launcher (UI uses `sys.executable -m`).

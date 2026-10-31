@@ -1,6 +1,8 @@
 # Changelog
 
 ## Unreleased (0.4.0)
+- Windows SMB: fixed concurrent record creation ("Access is denied" for losers) and lock-file deletion races found
+  by new CI tests over a real `\\localhost` SMB share; CI also checks the offline Windows installer.
 - CI: full test suite on Windows and Linux (GitHub Actions); first run green on both.
 - Windows: atomic file replacement retries briefly on sharing violations (UI reading status.json while training
   replaces it).

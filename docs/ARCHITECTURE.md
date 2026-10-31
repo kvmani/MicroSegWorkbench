@@ -107,8 +107,12 @@ averaged probabilities (bounded GPU memory).
   record pointing to partial data. Two computers uploading the same blob race benignly (identical content).
 - Concurrency without locks: dataset ids are content hashes, run ids are unique, reviews are separate files.
   A per-host lock file only prevents two processes on one computer appending to the same partial upload.
-- Tradeoff: no garbage collection of unreferenced blobs yet (only stale partial uploads); deleting published data is
-  an administrator action outside the app.
+- Windows/SMB (found by CI on a real `\\localhost` share): a losing concurrent `os.rename` may fail with
+  "Access is denied" rather than FileExistsError - treated as "already exists" when the target exists, otherwise
+  retried; deleting lock/partial files retries sharing violations (WinError 32). Atomic `os.replace` writes retry
+  sharing violations as well.
+- Unreferenced blobs (from interrupted publications) are removed only by an administrator command with a grace
+  period (`msw share gc --unreferenced --apply`).
 
 ### AD-10 Downloads go through a local blob cache
 `<workspace>/cache/blobs` uses the same store, so an interrupted multi-GB download keeps its completed (and partially
