@@ -42,3 +42,30 @@ jobs:
         run: python -m microseg_workbench devices
       - name: Tests
         run: python -m pytest -q -ra
+
+  windows-installer:
+    name: Windows offline installer
+    runs-on: windows-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Build offline wheelhouse (as documented in docs/DEPLOYMENT.md)
+        shell: pwsh
+        run: |
+          python -m pip download -d wheelhouse -r deploy/requirements-desktop.txt --only-binary=:all: --platform win_amd64 --python-version 3.12 --extra-index-url https://download.pytorch.org/whl/cpu
+          python -m pip download -d wheelhouse torch --index-url https://download.pytorch.org/whl/cpu --only-binary=:all: --platform win_amd64 --python-version 3.12
+          python -m pip download -d wheelhouse pip setuptools wheel
+      - name: Run install.ps1 (no index - offline install from the wheelhouse only)
+        shell: pwsh
+        run: deploy/windows/install.ps1 -Wheelhouse "$PWD/wheelhouse" -Source "$PWD" -Python "python"
+      - name: Verify the installation
+        shell: pwsh
+        run: |
+          $py = Join-Path $env:LOCALAPPDATA "MicroSegWorkbench\venv\Scripts\python.exe"
+          & $py -m microseg_workbench --workspace "$env:RUNNER_TEMP\ws" quickstart --quiet
+          if ($LASTEXITCODE -ne 0) { throw "quickstart failed" }
+          $desktop = [Environment]::GetFolderPath("Desktop")
+          if (-not (Test-Path (Join-Path $desktop "MicroSegWorkbench.lnk"))) { throw "shortcut missing" }

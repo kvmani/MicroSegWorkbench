@@ -21,19 +21,27 @@ if (-not (Test-Path (Join-Path $Venv "Scripts\python.exe"))) {
     Invoke-Expression "$Python -m venv `"$Venv`""
 }
 $Py = Join-Path $Venv "Scripts\python.exe"
-& $Py -m pip install --no-index --find-links "$Wheelhouse" --upgrade pip
-& $Py -m pip install --no-index --find-links "$Wheelhouse" -r (Join-Path $Source "deploy\requirements-desktop.txt")
-& $Py -m pip install --no-index --find-links "$Wheelhouse" --no-deps "$Source"
+function Invoke-Checked { param([scriptblock]$Block, [string]$What)
+    & $Block
+    if ($LASTEXITCODE -ne 0) { throw "$What failed (exit code $LASTEXITCODE)" }
+}
+Invoke-Checked { & $Py -m pip install --no-index --find-links "$Wheelhouse" --upgrade pip } "Upgrading pip"
+Invoke-Checked { & $Py -m pip install --no-index --find-links "$Wheelhouse" -r (Join-Path $Source "deploy\requirements-desktop.txt") } "Installing dependencies"
+Invoke-Checked { & $Py -m pip install --no-index --find-links "$Wheelhouse" --no-deps "$Source" } "Installing MicroSegWorkbench"
 
 Write-Host "Checking the installation..."
-& $Py -m microseg_workbench devices
+Invoke-Checked { & $Py -m microseg_workbench devices } "Checking the installation"
 
 $Launcher = Join-Path $Venv "Scripts\pythonw.exe"
+$Desktop = [Environment]::GetFolderPath("Desktop")
+if (-not $Desktop) { $Desktop = Join-Path $env:USERPROFILE "Desktop" }
+New-Item -ItemType Directory -Force -Path $Desktop | Out-Null
 $Shell = New-Object -ComObject WScript.Shell
-$Link = $Shell.CreateShortcut((Join-Path ([Environment]::GetFolderPath("Desktop")) "MicroSegWorkbench.lnk"))
+$Link = $Shell.CreateShortcut((Join-Path $Desktop "MicroSegWorkbench.lnk"))
 $Link.TargetPath = $Launcher
 $Link.Arguments = "-m microseg_workbench.gui.app"
 $Link.WorkingDirectory = $Root
 $Link.Description = "MicroSegWorkbench - microstructure segmentation"
 $Link.Save()
+Write-Host "Shortcut: $(Join-Path $Desktop 'MicroSegWorkbench.lnk')"
 Write-Host "Done. Start MicroSegWorkbench from the desktop shortcut."
