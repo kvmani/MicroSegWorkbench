@@ -53,11 +53,11 @@ class AugmentPage(QWidget):
         self.inputs: dict[str, QSpinBox | QDoubleSpinBox] = {}
         prep_box = QGroupBox("Preprocessing (training, evaluation and prediction)")
         prep_form = QFormLayout(prep_box)
-        self.resize = QDoubleSpinBox()
-        self.resize.setRange(0.1, 4.0)
-        self.resize.setSingleStep(0.05)
-        self.resize.setValue(1.0)
-        self.resize.setToolTip("1.0 keeps the original size. Masks are resized with nearest neighbour; very thin "
+        self.resize_factor = QDoubleSpinBox()
+        self.resize_factor.setRange(0.1, 4.0)
+        self.resize_factor.setSingleStep(0.05)
+        self.resize_factor.setValue(1.0)
+        self.resize_factor.setToolTip("1.0 keeps the original size. Masks are resized with nearest neighbour; very thin "
                                "features can vanish when shrinking - check the preview.")
         self.normalization = QComboBox()
         labels = {"dtype_range": "Scale by bit depth (default)",
@@ -73,7 +73,7 @@ class AugmentPage(QWidget):
             border_row.addWidget(QLabel(label))
             border_row.addWidget(b)
             self.border.append(b)
-        prep_form.addRow("Resize factor:", self.resize)
+        prep_form.addRow("Resize factor:", self.resize_factor)
         prep_form.addRow("Exclude border (px):", border_row)
         prep_form.addRow("Intensity normalization:", self.normalization)
         box = QGroupBox("Augmentation settings")
@@ -172,7 +172,7 @@ class AugmentPage(QWidget):
             check.setChecked(False)
 
     def preprocess(self) -> Preprocess:
-        return Preprocess(resize_factor=round(self.resize.value(), 4), normalization=self.normalization.currentData(),
+        return Preprocess(resize_factor=round(self.resize_factor.value(), 4), normalization=self.normalization.currentData(),
                           exclude_border=tuple(b.value() for b in self.border))
 
     def config(self) -> AugmentConfig:

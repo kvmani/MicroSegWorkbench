@@ -95,8 +95,7 @@ def analyse_run(run_root: Path, datasets_dir: Path, class_name: str = "hydride",
     value = _class_value(class_map, class_name)
     from ..core.preprocess import Preprocess
 
-    prep = Preprocess(**{k: (tuple(v) if k == "exclude_border" else v)
-                         for k, v in (evaluation.get("preprocess") or {}).items()})
+    prep = Preprocess.from_meta(evaluation)
     samples = {s["stem"]: s for s in dataset.samples()}
     per_image, all_truth, all_pred = {}, [], []
     for stem in evaluation["images"]:

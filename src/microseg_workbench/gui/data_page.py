@@ -240,9 +240,9 @@ class DataPage(QWidget):
         self.summary.setText(f"{verdict} {report.summary()}{classes}")
         self.issues.clear()
         for issue in report.issues:
-            item = QListWidgetItem(f"{issue.severity.upper()}: {f'[{issue.stem}] ' if issue.stem else ''}{issue.message}")
-            item.setForeground(QColor("#b42318" if issue.severity == "error" else "#8a5a00"))
-            self.issues.addItem(item)
+            issue_item = QListWidgetItem(f"{issue.severity.upper()}: {f'[{issue.stem}] ' if issue.stem else ''}{issue.message}")
+            issue_item.setForeground(QColor("#b42318" if issue.severity == "error" else "#8a5a00"))
+            self.issues.addItem(issue_item)
         if not report.issues:
             self.issues.addItem("No problems found.")
         self.table.setRowCount(len(report.pairs))

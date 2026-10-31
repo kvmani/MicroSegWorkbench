@@ -54,7 +54,7 @@ def metrics_from_confusion(cm: np.ndarray, class_names: list[str]) -> dict[str, 
     tp = np.diag(cm).astype(np.float64)
     fp = cm.sum(axis=0) - tp
     fn = cm.sum(axis=1) - tp
-    per_class = []
+    per_class: list[dict[str, Any]] = []
     for i, name in enumerate(class_names):
         per_class.append({
             "index": i,

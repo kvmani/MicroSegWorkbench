@@ -167,7 +167,7 @@ def test_preprocess_controls_flow_into_training_config(app, tmp_path):
                            ws.datasets_dir, "d")
     win = MainWindow(ws, interactive=False)
     aug = win.augment_page
-    aug.resize.setValue(0.5)
+    aug.resize_factor.setValue(0.5)
     aug.normalization.setCurrentIndex(aug.normalization.findData("per_image_standardize"))
     aug.preview()
     assert "Resized from 64x64 to 32x32" in aug.captions.text()

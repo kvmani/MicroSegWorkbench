@@ -114,7 +114,7 @@ class MetadataDB:
                         (_now(), user, f"register {kind}", key))
         return HTTPStatus.CREATED, {"status": "created", "key": key}
 
-    def list(self, kind: str) -> list[dict[str, Any]]:
+    def records(self, kind: str) -> list[dict[str, Any]]:
         with self._connect() as con:
             rows = con.execute("SELECT record, submitted_by, submitted_at FROM records WHERE kind=? ORDER BY key",
                                (kind,)).fetchall()
@@ -128,10 +128,10 @@ class MetadataDB:
 
     def runs_with_status(self) -> list[dict[str, Any]]:
         reviews: dict[str, list[dict[str, Any]]] = {}
-        for item in self.list("reviews"):
+        for item in self.records("reviews"):
             reviews.setdefault(item["record"]["run_id"], []).append(item)
         out = []
-        for item in self.list("runs"):
+        for item in self.records("runs"):
             rid = item["record"]["run_id"]
             ordered = sorted(reviews.get(rid, []), key=lambda r: r["record"]["reviewed_at"])
             item["review_status"] = ordered[-1]["record"]["decision"] if ordered else "unreviewed"
@@ -147,7 +147,7 @@ def _fmt(v: Any) -> str:
 def registry_page(db: MetadataDB) -> str:
     """Read-only HTML overview (for an intranet portal tile). Server-rendered; no scripts or external assets."""
     runs = db.runs_with_status()
-    datasets = db.list("datasets")
+    datasets = db.records("datasets")
 
     def run_rows(items: list[dict[str, Any]], approved: bool) -> str:
         rows = []
@@ -230,7 +230,7 @@ class Handler(BaseHTTPRequestHandler):
         if parts == ["api", "whoami"]:
             return self._send(HTTPStatus.OK, {"user": user})
         if parts == ["api", "datasets"]:
-            return self._send(HTTPStatus.OK, self.db.list("datasets"))
+            return self._send(HTTPStatus.OK, self.db.records("datasets"))
         if parts == ["api", "runs"]:
             return self._send(HTTPStatus.OK, self.db.runs_with_status())
         if parts == ["api", "approved"]:
