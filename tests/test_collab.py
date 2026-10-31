@@ -70,14 +70,18 @@ def test_create_exclusive_has_one_winner_under_contention(tmp_path):
 
     def writer(i):
         barrier.wait()
-        results.append((i, create_exclusive(target, f"writer {i}".encode())))
+        try:
+            results.append((i, create_exclusive(target, f"writer {i}".encode())))
+        except Exception as exc:  # any error in a writer thread fails the test
+            results.append((i, exc))
 
     threads = [threading.Thread(target=writer, args=(i,)) for i in range(8)]
     for t in threads:
         t.start()
     for t in threads:
         t.join()
-    winners = [i for i, ok in results if ok]
+    assert not [r for _, r in results if isinstance(r, Exception)], results
+    winners = [i for i, ok in results if ok is True]
     assert len(winners) == 1
     assert target.read_text() == f"writer {winners[0]}"
     assert not [p for p in tmp_path.iterdir() if p.name.endswith(".tmp")]

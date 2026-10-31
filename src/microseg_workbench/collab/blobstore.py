@@ -21,7 +21,7 @@ import time
 from pathlib import Path
 from typing import Callable
 
-from .fsops import _rename_no_replace, host_id
+from .fsops import _rename_no_replace, host_id, unlink_with_retry
 
 CHUNK = 4 * 1024 * 1024
 ProgressFn = Callable[[int, int], None]
@@ -63,9 +63,9 @@ class _HostLock:
             except FileExistsError:
                 if self._stale():
                     try:
-                        self.path.unlink()
-                    except FileNotFoundError:
-                        pass
+                        unlink_with_retry(self.path)
+                    except PermissionError:
+                        pass  # someone else is handling it; try again
                     continue
                 if time.monotonic() > deadline:
                     raise BlobError(f"Another process on this computer is copying the same file ({self.path}).")
@@ -81,10 +81,7 @@ class _HostLock:
         return pid > 0 and not pid_alive(pid)
 
     def __exit__(self, *exc) -> None:
-        try:
-            self.path.unlink()
-        except FileNotFoundError:
-            pass
+        unlink_with_retry(self.path)
 
 
 class BlobStore:
@@ -180,7 +177,7 @@ class BlobStore:
             try:
                 _rename_no_replace(part, final)
             except FileExistsError:  # another computer published the same blob first: identical content
-                part.unlink()
+                unlink_with_retry(part)
 
     def stale_partials(self, max_age_s: float) -> list[Path]:
         partial_dir = self.root / "partial"

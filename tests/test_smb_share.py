@@ -38,14 +38,18 @@ def test_exclusive_create_contention_on_share(share_root):
 
     def writer(i):
         barrier.wait()
-        results.append(create_exclusive(target, f"writer {i}".encode()))
+        try:
+            results.append(create_exclusive(target, f"writer {i}".encode()))
+        except Exception as exc:  # any error in a writer thread fails the test
+            results.append(exc)
 
     threads = [threading.Thread(target=writer, args=(i,)) for i in range(6)]
     for t in threads:
         t.start()
     for t in threads:
         t.join()
-    assert results.count(True) == 1
+    assert not [r for r in results if isinstance(r, Exception)], results
+    assert results.count(True) == 1 and len(results) == 6
     assert not [p for p in share_root.iterdir() if p.name.endswith(".tmp")]
 
 

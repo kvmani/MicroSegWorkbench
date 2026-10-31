@@ -11,6 +11,7 @@ import errno
 import json
 import os
 import socket
+import time
 import uuid
 from pathlib import Path
 from typing import Any
@@ -20,9 +21,40 @@ def host_id() -> str:
     return "".join(ch if ch.isalnum() or ch in "-_" else "_" for ch in socket.gethostname()) or "host"
 
 
+WINDOWS_RETRIES = 40
+WINDOWS_RETRY_DELAY_S = 0.05
+
+
+def unlink_with_retry(path: Path) -> None:
+    """Delete a file; on Windows retry while another process briefly has it open (sharing violation)."""
+    for attempt in range(WINDOWS_RETRIES):
+        try:
+            os.unlink(path)
+            return
+        except FileNotFoundError:
+            return
+        except PermissionError:
+            if os.name != "nt" or attempt == WINDOWS_RETRIES - 1:
+                raise
+            time.sleep(WINDOWS_RETRY_DELAY_S)
+
+
 def _rename_no_replace(src: Path, dst: Path) -> None:
     if os.name == "nt":
-        os.rename(src, dst)  # Windows: fails with FileExistsError when dst exists (atomic)
+        # Windows: os.rename fails if dst exists. On SMB shares a concurrent creator can make it fail with
+        # "Access is denied" instead of FileExistsError; if dst now exists that is the same outcome.
+        for attempt in range(WINDOWS_RETRIES):
+            try:
+                os.rename(src, dst)
+                return
+            except FileExistsError:
+                raise
+            except PermissionError:
+                if Path(dst).exists():
+                    raise FileExistsError(str(dst)) from None
+                if attempt == WINDOWS_RETRIES - 1:
+                    raise
+                time.sleep(WINDOWS_RETRY_DELAY_S)
         return
     try:
         os.link(src, dst)  # POSIX: atomic, fails if dst exists
@@ -57,7 +89,7 @@ def create_exclusive(path: Path, data: bytes) -> bool:
         return True
     finally:
         if tmp.exists():
-            tmp.unlink()
+            unlink_with_retry(tmp)
 
 
 def create_exclusive_json(path: Path, payload: Any) -> bool:
