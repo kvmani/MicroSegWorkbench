@@ -41,6 +41,18 @@ def label_colors(channel_labels: np.ndarray, class_map: ClassMap) -> np.ndarray:
     return out
 
 
+def thumbnail(rgb: np.ndarray, max_side: int) -> np.ndarray:
+    """Shrink an RGB display image so its longer side is at most ``max_side`` (display only, never for analysis)."""
+    from PIL import Image
+
+    h, w = rgb.shape[:2]
+    scale = max_side / max(h, w)
+    if scale >= 1:
+        return rgb
+    size = (max(1, round(w * scale)), max(1, round(h * scale)))
+    return np.asarray(Image.fromarray(rgb).resize(size, Image.Resampling.BOX))
+
+
 def tile_grid(tiles: list[np.ndarray], columns: int, gap: int = 4, background: int = 255) -> np.ndarray:
     if not tiles:
         raise ValueError("No tiles to arrange.")

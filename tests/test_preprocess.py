@@ -119,3 +119,12 @@ def test_excluded_border_is_never_scored_and_masks_cover_analysed_region(synthet
     with pytest.raises(Exception, match="leaves only"):
         run_training(TrainConfig(dataset_id=version.dataset_id, epochs=1, device="cpu",
                                  exclude_border=(40, 40, 0, 0)), ws)
+
+
+def test_thumbnail_is_display_only_and_bounded():
+    from microseg_workbench.core.render import thumbnail
+
+    big = np.zeros((2000, 1000, 3), np.uint8)
+    assert thumbnail(big, 768).shape == (768, 384, 3)
+    small = np.zeros((100, 50, 3), np.uint8)
+    assert thumbnail(small, 768) is small

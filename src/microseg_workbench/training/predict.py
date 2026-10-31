@@ -13,7 +13,7 @@ from ..core.atomic import publish_dir, sha256_file, staging_dir, write_bytes_ato
 from ..core.classes import ClassMap
 from ..core.imageio import IMAGE_EXTENSIONS, MASK_SUFFIX, ImageReadError, encode_png, load_image, to_unit_float
 from ..core.preprocess import Preprocess
-from ..core.render import overlay, tile_grid, to_display_rgb
+from ..core.render import overlay, thumbnail, tile_grid, to_display_rgb
 from .device import choose_device
 from .engine import load_checkpoint, predict_labels
 from .runs import RunDir, utc_now
@@ -69,7 +69,8 @@ def predict_folder(run: RunDir, input_folder: Path, output_folder: Path, checkpo
             write_bytes_atomic(stage / f"{path.stem}_pred_mask.png",
                                encode_png(values[labels]))
             write_bytes_atomic(stage / f"{path.stem}_overlay.png",
-                               encode_png(tile_grid([to_display_rgb(image), overlay(image, labels, class_map)], 2)))
+                               encode_png(tile_grid([thumbnail(to_display_rgb(image), 1024),
+                                                     thumbnail(overlay(image, labels, class_map), 1024)], 2)))
             counts = np.bincount(labels.ravel(), minlength=class_map.num_classes)
             records.append({"file": path.name, "image_sha256": sha256_file(path),
                             "image_height": int(loaded.array.shape[0]), "image_width": int(loaded.array.shape[1]),

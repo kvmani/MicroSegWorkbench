@@ -57,9 +57,11 @@ and the highest-value remaining gaps (packaged Windows build, multi-process augm
 
 ## Verification
 - 2026-10-31, Linux sandbox, Python 3.13.18, torch 2.15.0 (CUDA build, no GPU present), numpy 2.5.3, Pillow 12.3,
-  PySide6 6.12 offscreen: `python -m pytest -q` -> **110 passed, 2 skipped** in ~1.5 min (the 2 skips need HydrideSegmentation);
+  PySide6 6.12 offscreen: `python -m pytest -q` -> **111 passed, 2 skipped** in ~1.5 min (the 2 skips need HydrideSegmentation);
   with `MSW_HYDRIDESEG_PATH=<HydrideSegmentation checkout @ main, v2.0.0>` and scipy 1.18.1 / scikit-image 0.26.0 /
-  matplotlib 3.11.2 installed -> **112 passed**.
+  matplotlib 3.11.2 installed -> **113 passed**.
+  - Manual smoke test: 12 synthetic 700x700 images, `images_in_memory: 3`, 128 px patches - tiled evaluation
+    scored all 1,470,000 test pixels at full resolution; peak RSS ~0.8 GB; 11 s on 4 cores.
   - Post-roadmap: early stopping (forced plateau -> stops after patience, evaluates epoch-1 checkpoint); excluded
     border never scored (evaluated pixel count, cropped masks, recorded analysed region, survives resume);
     class-balance summary and rare-class warning; Results banner shows shared review decision; share GC.

@@ -1,6 +1,9 @@
 # Changelog
 
 ## Unreleased (0.4.0)
+- Display-only previews and overlays are capped (768 px per-epoch previews, 1024 px evaluation/prediction panels) so
+  large micrographs do not fill the disk; prediction masks stay full resolution.
+- Windows: training child process started without a console window (untested on Windows).
 - Seed variability: `--repeat-seeds N`, Training page queue, Compare page mean +/- sd when runs differ only by seed.
 - Exclude-border preprocessing (e.g. SEM data bars): never trained on or scored; masks cover the analysed region.
 - Early stopping (`--early-stopping N`, Training page).

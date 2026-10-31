@@ -31,7 +31,7 @@ from ..core.atomic import sha256_file, write_bytes_atomic, write_json_atomic
 from ..core.augment import IGNORE_INDEX
 from ..core.dataset import MANIFEST_FILENAME, DatasetVersion
 from ..core.imageio import encode_png
-from ..core.render import overlay, tile_grid, to_display_rgb
+from ..core.render import overlay, thumbnail, tile_grid, to_display_rgb
 from ..core.workspace import Workspace
 from .config import TrainConfig
 from ..core.preprocess import Preprocess
@@ -44,6 +44,8 @@ from .runs import ACTIVE_STATES, RunDir, new_run_id, utc_now
 
 EventCallback = Callable[[dict[str, Any]], None]
 AUTO_BATCH_START = 64
+PREVIEW_MAX_SIDE = 768  # per-epoch fixed-sample previews (display only)
+EVAL_PANEL_MAX_SIDE = 1024  # evaluation overlay panels (display only; prediction masks stay full resolution)
 CPU_AUTO_BATCH = 8
 
 
@@ -100,7 +102,8 @@ def _save_fixed_samples(run: RunDir, epoch: int, fixed: list[Sample], preds: dic
     folder.mkdir(exist_ok=True)
     files = []
     for s in fixed:
-        write_bytes_atomic(folder / f"{s.stem}.png", encode_png(overlay(s.image, preds[s.stem], class_map)))
+        write_bytes_atomic(folder / f"{s.stem}.png",
+                           encode_png(thumbnail(overlay(s.image, preds[s.stem], class_map), PREVIEW_MAX_SIDE)))
         files.append(f"samples/{folder.name}/{s.stem}.png")
     return files
 
@@ -286,14 +289,16 @@ def _execute(run: RunDir, cfg: TrainConfig, workspace: Workspace, on_event: Even
                 "environment": {"python": platform.python_version(), "platform": platform.platform(),
                                 "torch": torch.__version__, "torch_cuda": torch.version.cuda, "numpy": np.__version__,
                                 "torch_threads": torch.get_num_threads(), "deterministic_algorithms": True},
-                "fixed_samples": {"source_split": fixed_source, "stems": [s.stem for s in fixed]},
+                "fixed_samples": {"source_split": fixed_source, "stems": [s.stem for s in fixed],
+                                  "preview_max_side_px": PREVIEW_MAX_SIDE},
                 "loss": f"{cfg.loss} (ignore label 255 excluded); validation loss reported as cross-entropy",
                 "model_selection": "best validation mean IoU over foreground classes (falls back to training loss)",
             }
             write_json_atomic(run.run_json, info)
             for s in fixed:
                 s = cropped(s, prep)
-                truth = tile_grid([to_display_rgb(s.image), overlay(s.image, s.labels, class_map)], columns=2)
+                truth = tile_grid([thumbnail(to_display_rgb(s.image), PREVIEW_MAX_SIDE),
+                                   thumbnail(overlay(s.image, s.labels, class_map), PREVIEW_MAX_SIDE)], columns=2)
                 write_bytes_atomic(run.samples / f"truth_{s.stem}.png", encode_png(truth))
             emit({"type": "start", "device": device_info.label(), "note": device_note, "batch_size": batch_size,
                   "mixed_precision": use_amp, "steps_per_epoch": steps_per_epoch, "epochs": total_epochs,
@@ -431,8 +436,9 @@ def evaluate_run(run: RunDir, workspace: Workspace, device: torch.device | None 
     values = np.asarray(class_map.values, np.uint8)
 
     def save(s: Sample, pred: np.ndarray) -> None:
-        tile = tile_grid([to_display_rgb(s.image), overlay(s.image, s.labels, class_map),
-                          overlay(s.image, pred, class_map)], columns=3)
+        tile = tile_grid([thumbnail(to_display_rgb(s.image), EVAL_PANEL_MAX_SIDE),
+                          thumbnail(overlay(s.image, s.labels, class_map), EVAL_PANEL_MAX_SIDE),
+                          thumbnail(overlay(s.image, pred, class_map), EVAL_PANEL_MAX_SIDE)], columns=3)
         write_bytes_atomic(run.evaluation / f"{s.stem}.png", encode_png(tile))
         write_bytes_atomic(run.evaluation / f"{s.stem}_pred_mask.png", encode_png(values[pred]))
 
@@ -452,7 +458,8 @@ def evaluate_run(run: RunDir, workspace: Workspace, device: torch.device | None 
         "preprocess": prep.to_dict(),
         "resolution": "metrics computed at original image resolution against original masks, excluding any "
                       "excluded border; prediction masks cover the analysed region only",
-        "overlay_layout": "image | ground truth | prediction",
+        "overlay_layout": f"image | ground truth | prediction (each panel at most {EVAL_PANEL_MAX_SIDE} px; display "
+                          "only - prediction masks are full resolution)",
         "prediction_masks": "evaluation/<stem>_pred_mask.png hold class values from the class map",
         "review_status": "unreviewed",
         "ground_truth": ("contains masks NOT approved in the annotation tool"

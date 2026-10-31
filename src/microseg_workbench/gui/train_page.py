@@ -42,6 +42,21 @@ def worker_command(cli_args: list[str]) -> tuple[str, list[str]]:
     return sys.executable, ["-m", "microseg_workbench", *cli_args]
 
 
+def _hide_console_window(proc: QProcess) -> None:
+    """On Windows, start the training child without flashing a console window (no-op elsewhere)."""
+    if sys.platform != "win32" or not hasattr(proc, "setCreateProcessArgumentsModifier"):
+        return
+    create_no_window = 0x08000000
+
+    def modifier(args) -> None:  # QProcess.CreateProcessArguments
+        args.flags |= create_no_window
+
+    try:
+        proc.setCreateProcessArgumentsModifier(modifier)
+    except Exception:  # never block training over a cosmetic detail
+        pass
+
+
 def _fmt_seconds(s: float | None) -> str:
     if s is None:
         return "-"
@@ -365,6 +380,7 @@ class TrainPage(QWidget):
         env.insert("PYTHONPATH", os.pathsep.join(p for p in (src_root, env.value("PYTHONPATH")) if p))
         env.insert("PYTHONUNBUFFERED", "1")
         proc.setProcessEnvironment(env)
+        _hide_console_window(proc)
         proc.readyReadStandardError.connect(self._read_stderr)
         proc.finished.connect(self._finished)
         proc.start(*worker_command(["--workspace", str(self.ctx.workspace.root), *args]))
