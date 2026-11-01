@@ -26,6 +26,16 @@ SMB share, Ubuntu VM), an independent review (REVIEW.md), and a few deliberately
   Continue the existing office rehearsal after resolving affected High findings. Earlier statements below
   that independent review is outstanding describe the pre-review implementation handoff.
 
+## Review response — 2026-11-01
+- All eight review findings (RV-20261101-001..008) addressed in `7d12cca` with 30 regression tests
+  (`tests/test_review_20261101.py`); status "Addressed (awaiting independent verification)" in REVIEWS.md, with the
+  agreed close-team scope and re-graded severities recorded per finding.
+- Behaviour changes users may notice: editing a dataset version's manifest makes it fail verification; Create dataset
+  version refuses if files changed since Check folder; datasets imported with provenance get new ids when approval
+  state changes; prediction refuses same-name inputs; publishing from a Linux mount without hard links is refused.
+- Evidence: full suite **153 passed, 5 skipped** (Linux, Python 3.13, CPU); collaboration + SMB-path tests with
+  `MSW_TEST_SHARE` pointing to a local folder 14 passed. CI result recorded on the next push.
+
 ## Current objective
 Hand over for office rehearsal and independent review. Implementation agents should next address review findings
 and the highest-value remaining gaps (multi-process augmentation, CUDA package, service authentication).

@@ -186,3 +186,13 @@ operations used and every loaded plugin's file SHA-256. Extra random draws happe
 configured, so existing configurations reproduce exactly. Geometric (mask-moving) plugin operations are deliberately
 not supported yet: they would need the alignment property tests the built-in transforms have.
 Example: `examples/plugins/example_ops.py`.
+
+### AD-18 Review hardening (RV-20261101-001..008)
+- Dataset identity: `content_identity` (shared by creation and `verify`) also covers annotation version/approval when
+  provenance exists; `verify` recomputes it, so manifest edits are detected. Runs record the manifest SHA-256 and
+  `check_dataset_unchanged` enforces it for resume, re-evaluation and publication.
+- Dataset creation decodes exactly the validated source bytes (hash-checked); changes since validation abort.
+- Paths from external manifests/records pass `safe_relpath` (or `safe_stem`) before any write.
+- Records on file systems without hard links fail closed (`UnsafeFilesystemError`); publishing is supported from
+  Windows workstations. Blob reuse during publication re-verifies; damaged shared blobs are reported, never modified.
+- Staging folders carry an owner file; cleanup removes only abandoned ones.

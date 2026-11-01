@@ -53,7 +53,7 @@ closure per REVIEW.md. Passing the existing suite does not resolve these indepen
   trust-based share identity and absence of service TLS remain deployment constraints, not new discoveries.
 
 ## RV-20261101-001 — Dataset manifest changes can turn training data into reported test data
-- **Status:** Open
+- **Status:** Addressed (awaiting independent verification)
 - **Severity:** High
 - **Reviewer and date:** Codex, 2026-11-01
 - **Reviewed commit / scope:** `47449da`; dataset integrity, resume and reevaluation.
@@ -73,11 +73,12 @@ closure per REVIEW.md. Passing the existing suite does not resolve these indepen
   digest; enforce it before resume, reevaluation and publication. Merely hashing the current manifest without
   checking a previously trusted digest is insufficient. Regression tests must reject split, class-map, group,
   file-reference and expected-hash mutations; unchanged datasets must remain resumable and evaluable.
-- **Fix commit and tests:** Pending.
+- **Fix commit and tests:** `7d12cca`; `tests/test_review_20261101.py`. Full suite 153 passed, 5 skipped (Linux).
+- **Implementer response (Claude, 2026-11-01, scope agreed with the project owner):** severity for the intended close-team office use: **Medium**. Real; in a trusted team the trigger is an accidental edit of manifest.json, not an attack. Fix: `DatasetVersion.verify()` recomputes the content id from the manifest (class map, split settings, every sample's stem/group/split/hashes, annotation state) and rejects mismatches, groups spanning splits and unsafe file paths. `check_dataset_unchanged` binds runs to `run.json.dataset.manifest_sha256`; resume, `evaluate_run` and `publish_run` refuse a changed manifest. Tests: `test_001_*` (5 manifest edits; reviewer's train/test swap after real training is refused while the unchanged dataset stays evaluable).
 - **Verification reviewer / evidence:** Pending independent verification.
 
 ## RV-20261101-002 — Mask edits after validation are published with stale shape and provenance
-- **Status:** Open
+- **Status:** Addressed (awaiting independent verification)
 - **Severity:** High
 - **Reviewer and date:** Codex, 2026-11-01
 - **Reviewed commit / scope:** `47449da`; dataset creation.
@@ -93,11 +94,12 @@ closure per REVIEW.md. Passing the existing suite does not resolve these indepen
   the validation hash; recheck dimensions and derive stored counts from those bytes. Fail atomically with an
   actionable revalidation message if input/provenance changed. Test same-size label edits, changed dimensions,
   and a concurrent source replacement; no version may appear on failure.
-- **Fix commit and tests:** Pending.
+- **Fix commit and tests:** `7d12cca`; `tests/test_review_20261101.py`. Full suite 153 passed, 5 skipped (Linux).
+- **Implementer response (Claude, 2026-11-01, scope agreed with the project owner):** severity for the intended close-team office use: **High (agreed)**. Real and likely: researchers fix a mask between Check folder and Create dataset version. Fix: Image and mask bytes are re-hashed at copy time against the validated hashes; the mask is decoded from exactly those bytes. A change raises `SourceChangedError` ('press Check folder again') and nothing is created. Tests: `test_002_*` (smaller mask, same-size label edit, changed image; re-checking then succeeds).
 - **Verification reviewer / evidence:** Pending independent verification.
 
 ## RV-20261101-003 — Version reuse can hide unapproved annotation provenance
-- **Status:** Open
+- **Status:** Addressed (awaiting independent verification)
 - **Severity:** High
 - **Reviewer and date:** Codex, 2026-11-01
 - **Reviewed commit / scope:** `47449da`; content identity and approval provenance.
@@ -114,11 +116,12 @@ closure per REVIEW.md. Passing the existing suite does not resolve these indepen
   provenance/revisions/approval, or separate immutable pixel content from explicitly versioned provenance.
   Never silently discard conflicting provenance. Test approved -> submitted and submitted -> approved, changed
   annotator/source revision, repeated identical preparation and independent workstation publication.
-- **Fix commit and tests:** Pending.
+- **Fix commit and tests:** `7d12cca`; `tests/test_review_20261101.py`. Full suite 153 passed, 5 skipped (Linux).
+- **Implementer response (Claude, 2026-11-01, scope agreed with the project owner):** severity for the intended close-team office use: **Medium**. Real (e.g. a mask approved later in OnlineAnnotator without pixel changes). Fix: When provenance exists, each sample's annotation version, status, approver and unapproved flag are part of the dataset id (`identity_includes_annotation`, `unapproved_stems` recorded); ids of datasets without provenance are unchanged. Tests: `test_003_*` (approved->submitted gives a new version with the correct flag, identical re-preparation reuses it).
 - **Verification reviewer / evidence:** Pending independent verification.
 
 ## RV-20261101-004 — Imported stems and shared file paths escape the staging directory
-- **Status:** Open
+- **Status:** Addressed (awaiting independent verification)
 - **Severity:** High
 - **Reviewer and date:** Codex, 2026-11-01
 - **Reviewed commit / scope:** `47449da`; external bundle and share materialization boundaries.
@@ -136,11 +139,12 @@ closure per REVIEW.md. Passing the existing suite does not resolve these indepen
   including symlink resolution and Windows semantics, before any writes/downloads. Reject duplicate normalized
   destinations. Test POSIX and Windows traversal/absolute paths, case collisions and symlink escape; preexisting
   sentinel files outside the stage must remain unchanged and no destination should be published.
-- **Fix commit and tests:** Pending.
+- **Fix commit and tests:** `7d12cca`; `tests/test_review_20261101.py`. Full suite 153 passed, 5 skipped (Linux).
+- **Implementer response (Claude, 2026-11-01, scope agreed with the project owner):** severity for the intended close-team office use: **Low**. Hostile exports/records are not expected in the team, but rejecting unsafe names is cheap. Fix: OnlineAnnotator stems with separators, traversal, drive syntax, control characters or a leading dot are rejected, as are duplicate names and unsupported extensions; every shared-record path is validated (`safe_relpath`) before any write. Exhaustive Windows reserved-name/Unicode/symlink suites deliberately not added (out of scope for a trusted office team). Tests: `test_004_*` (7 stems, 5 record paths; sentinel unchanged).
 - **Verification reviewer / evidence:** Pending independent verification.
 
 ## RV-20261101-005 — POSIX fallback overwrites an exclusively published record
-- **Status:** Open
+- **Status:** Addressed (awaiting independent verification)
 - **Severity:** High
 - **Reviewer and date:** Codex, 2026-11-01
 - **Reviewed commit / scope:** `47449da`; immutable share publication on POSIX filesystems without hard links.
@@ -155,11 +159,12 @@ closure per REVIEW.md. Passing the existing suite does not resolve these indepen
   or fail closed with clear unsupported-filesystem guidance. A check-then-rename fallback is insufficient.
   Tests must force the no-hard-links path under competing processes and prove exactly one winner, stable bytes,
   conflict reporting and no exposed partial records. Verify on the actual Linux-mounted office share.
-- **Fix commit and tests:** Pending.
+- **Fix commit and tests:** `7d12cca`; `tests/test_review_20261101.py`. Full suite 153 passed, 5 skipped (Linux).
+- **Implementer response (Claude, 2026-11-01, scope agreed with the project owner):** severity for the intended close-team office use: **Low**. Not reachable in the intended deployment: only Windows workstations publish (os.rename never replaces, verified over SMB in CI) and the VM never writes to the share. Fix: Minimal fail-closed fix instead of a new primitive: on file systems without hard links record creation raises `UnsafeFilesystemError` (shown as a ShareError: publish from a Windows workstation); content-addressed blobs may still use a plain rename because an overwrite stores identical bytes. Tests: `test_005_*` (reviewer's race now refuses both writers; blobs still work).
 - **Verification reviewer / evidence:** Pending independent verification.
 
 ## RV-20261101-006 — Existing corrupt blobs are reused during successful publication
-- **Status:** Open
+- **Status:** Addressed (awaiting independent verification)
 - **Severity:** High
 - **Reviewer and date:** Codex, 2026-11-01
 - **Reviewed commit / scope:** `47449da`; blob deduplication and publication integrity.
@@ -175,11 +180,12 @@ closure per REVIEW.md. Passing the existing suite does not resolve these indepen
   content explicitly (fail publication or quarantine/repair atomically under appropriate coordination). Do not mutate
   a valid immutable blob. Test corrupt existing destinations, cached corrupt blobs, concurrent repair/publication,
   and ensure no new record references known bad bytes.
-- **Fix commit and tests:** Pending.
+- **Fix commit and tests:** `7d12cca`; `tests/test_review_20261101.py`. Full suite 153 passed, 5 skipped (Linux).
+- **Implementer response (Claude, 2026-11-01, scope agreed with the project owner):** severity for the intended close-team office use: **Low-Medium**. Needs storage failure or manual tampering on the file server. Fix: Publication re-hashes any already stored blob it reuses and refuses a damaged one with an administrator message; stored blobs are never modified (no automatic repair, by design). A damaged copy in the user's own local cache is discarded and re-fetched once. Tests: `test_006_*`.
 - **Verification reviewer / evidence:** Pending independent verification.
 
 ## RV-20261101-007 — Prediction silently overwrites images with the same filename stem
-- **Status:** Open
+- **Status:** Addressed (awaiting independent verification)
 - **Severity:** High
 - **Reviewer and date:** Codex, 2026-11-01
 - **Reviewed commit / scope:** `47449da`; inference exports and downstream scientific analysis.
@@ -195,11 +201,12 @@ closure per REVIEW.md. Passing the existing suite does not resolve these indepen
   inference, or use unique per-input artifact names recorded explicitly in the report and consumed downstream.
   Test same stem across extensions, case-insensitive Windows collisions and Unicode normalization collisions;
   every reported success must have a unique matching mask/overlay and correct downstream statistics.
-- **Fix commit and tests:** Pending.
+- **Fix commit and tests:** `7d12cca`; `tests/test_review_20261101.py`. Full suite 153 passed, 5 skipped (Linux).
+- **Implementer response (Claude, 2026-11-01, scope agreed with the project owner):** severity for the intended close-team office use: **High (agreed)**. Real and likely with mixed-format folders. Fix: Prediction preflights input names (case-insensitive) and refuses clashes before any output is written. Tests: `test_007_*` (same.png/same.tif, Same.png/same.bmp).
 - **Verification reviewer / evidence:** Pending independent verification.
 
 ## RV-20261101-008 — Recovery cleanup deletes another active preparation/download
-- **Status:** Open
+- **Status:** Addressed (awaiting independent verification)
 - **Severity:** Medium
 - **Reviewer and date:** Codex, 2026-11-01
 - **Reviewed commit / scope:** `47449da`; workspace concurrency and interrupted-publication recovery.
@@ -214,7 +221,8 @@ closure per REVIEW.md. Passing the existing suite does not resolve these indepen
 - **Recommended action and verification:** Track staging ownership/liveness or serialize operations using a local
   lock; reclaim only demonstrably abandoned work. Do not use mere directory prefix as evidence of interruption.
   Test two simultaneous preparations, two downloads, mixed operations, crash cleanup and stale-owner recovery.
-- **Fix commit and tests:** Pending.
+- **Fix commit and tests:** `7d12cca`; `tests/test_review_20261101.py`. Full suite 153 passed, 5 skipped (Linux).
+- **Implementer response (Claude, 2026-11-01, scope agreed with the project owner):** severity for the intended close-team office use: **Low**. Rare (two app instances on one workspace) but cheap to fix. Fix: Staging folders record owner pid/host/time; cleanup removes only those whose owner process is gone on this computer, or unowned/foreign ones older than a day; the owner file is removed before publication. Tests: `test_008_*` (reviewer's concurrent preparations now both succeed).
 - **Verification reviewer / evidence:** Pending independent verification.
 
 ### Implementer handoff
@@ -225,3 +233,14 @@ safe behavior; the accompanying probes currently assert the defects. Record a fi
 each ID. Retain all findings and close only after verification. Do not mark roadmap phases complete solely because
 the current suite passes. Reconcile the stale Windows/SMB statements in PROGRESS/ROADMAP with dated evidence during
 the next deployment handoff.
+
+### Implementer response summary — 2026-11-01 (Claude)
+
+All eight findings reproduced and were addressed in `7d12cca` with 30 regression tests adapted from the reviewer's
+probes (expectations inverted). Scope was agreed with the project owner for a small, trusted office team: real and
+meaningful defects fixed fully (001, 002, 003, 007); cheap defensive fixes without the exhaustive suites for 004, 006,
+008; for 005 a fail-closed refusal instead of a new atomic primitive, because only Windows workstations publish.
+Reviewer severities are kept above; the implementer's context-specific grading is given in each response. Not done by
+design: Windows reserved-name/Unicode/symlink path suites, automatic repair of damaged shared blobs, a no-replace
+primitive for Linux CIFS mounts, multi-process stress tests for staging cleanup. Findings stay open for independent
+verification.

@@ -1,6 +1,10 @@
 # Changelog
 
 ## Unreleased (0.4.0)
+- Review fixes (RV-20261101-001..008): manifest edits detected and runs bound to their dataset manifest; sources
+  re-checked at dataset creation; approval provenance in dataset ids; unsafe import/share paths rejected; fail-closed
+  publishing on file systems without hard links; damaged stored blobs refused at publication; prediction refuses
+  same-name inputs; cleanup never deletes another process's staging folder.
 - Self-contained HTML run report (`msw report RUN`, Results page *Export report*): review status, per-class test
   scores, inline SVG curves, test overlays, settings and provenance; no scripts or external resources.
 - Faster free rotation: only a window of side patch x sqrt(2) around the patch is rotated (was the whole image;

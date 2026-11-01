@@ -89,7 +89,8 @@ The package is unsigned; follow the office policy for internally built executabl
 4. Each user connects once: *6 Share -> Shared folder* (or `msw share config --path <share> --user <name>`).
 
 Layout and guarantees are described in `docs/ARCHITECTURE.md` (AD-9, AD-10). No database file is ever placed on
-the share.
+the share. **Publish from Windows workstations.** Linux machines may read the share, but on a mount without hard-link
+support the app refuses to publish (it could not guarantee that simultaneous publications never overwrite each other).
 
 Maintenance:
 - `msw share check` re-hashes every published file (slow on large shares; run monthly or after storage incidents).
