@@ -5,11 +5,13 @@ from __future__ import annotations
 from collections import Counter
 from pathlib import Path
 
-from PySide6.QtCore import Qt
-from PySide6.QtGui import QColor
+import numpy as np
+from PySide6.QtCore import QSize, Qt
+from PySide6.QtGui import QColor, QIcon
 from PySide6.QtWidgets import (
-    QComboBox, QDoubleSpinBox, QFileDialog, QFormLayout, QGroupBox, QHBoxLayout, QLabel, QLineEdit, QListWidget,
-    QListWidgetItem, QPushButton, QSpinBox, QSplitter, QTableWidget, QTableWidgetItem, QVBoxLayout, QWidget,
+    QComboBox, QDoubleSpinBox, QFileDialog, QFormLayout, QGroupBox, QHBoxLayout, QLabel, QLineEdit, QListView,
+    QListWidget, QListWidgetItem, QPushButton, QSlider, QSpinBox, QSplitter, QTableWidget, QTableWidgetItem,
+    QTabWidget, QVBoxLayout, QWidget,
 )
 
 from ..core.dataset import ValidationReport, create_dataset_version, plan_split, validate_folder
@@ -18,7 +20,29 @@ from ..core.render import overlay, tile_grid, to_display_rgb
 from ..core.splits import DEFAULT_GROUP_REGEX, SplitConfig, SplitError
 from ..core.synthetic import SyntheticSpec, write_synthetic_dataset
 from .context import AppContext
-from .widgets import ImageView, hint, run_background
+from .data_widgets import ClassBars, SplitView
+from .widgets import ImageView, array_to_pixmap, hint, run_background
+
+THUMB = 96
+
+
+def _pair_thumbnail(pair, class_map) -> np.ndarray:
+    """Small image + mask overlay for the gallery; problem pairs get a red frame."""
+    try:
+        image = to_unit_float(load_image(pair.image_path).array)
+        step = max(1, int(np.ceil(max(image.shape[:2]) / THUMB)))
+        if class_map is not None and pair.ok:
+            labels = class_map.channel_lut()[decode_mask(load_mask_values(pair.mask_path), class_map)]
+            rgb = overlay(image[::step, ::step], labels[::step, ::step], class_map, alpha=0.4)
+        else:
+            rgb = to_display_rgb(image[::step, ::step])
+    except Exception:
+        rgb = np.full((THUMB, THUMB, 3), 230, np.uint8)
+    rgb = np.ascontiguousarray(rgb)
+    if not pair.ok:
+        rgb = rgb.copy()
+        rgb[:3], rgb[-3:], rgb[:, :3], rgb[:, -3:] = (180, 35, 24), (180, 35, 24), (180, 35, 24), (180, 35, 24)
+    return rgb
 
 HELP = ("<b>Step 1 - Data.</b> Pick a folder with micrographs (<i>name</i>.png/.tif) and masks "
         "(<i>name</i>_mask.png) plus a <i>classes.json</i> that names each mask value. "
@@ -67,7 +91,8 @@ class DataPage(QWidget):
         self.summary = QLabel("No folder checked yet.")
         self.summary.setWordWrap(True)
         self.issues = QListWidget()
-        self.issues.setMaximumHeight(110)
+        self.issues.setMaximumHeight(90)
+        self.issues.setToolTip("Click a problem to show its image.")
         self.table = QTableWidget(0, 5)
         self.table.setHorizontalHeaderLabels(["Image", "Group", "Size (HxW)", "Class pixels", "Status"])
         self.table.horizontalHeader().setStretchLastSection(True)
@@ -75,6 +100,24 @@ class DataPage(QWidget):
         self.table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
         self.table.itemSelectionChanged.connect(self._show_selected)
         self.preview = ImageView("Select an image to see it with its mask")
+        self.opacity = QSlider(Qt.Orientation.Horizontal)
+        self.opacity.setRange(0, 90)
+        self.opacity.setValue(45)
+        self.opacity.setMaximumWidth(180)
+        self.opacity.setToolTip("How strongly the mask colours cover the image (0 = image only).")
+        self.opacity.valueChanged.connect(self._show_selected)
+        self.gallery = QListWidget()
+        self.gallery.setViewMode(QListView.ViewMode.IconMode)
+        self.gallery.setIconSize(QSize(THUMB, THUMB))
+        self.gallery.setGridSize(QSize(THUMB + 24, THUMB + 30))
+        self.gallery.setResizeMode(QListView.ResizeMode.Adjust)
+        self.gallery.setMovement(QListView.Movement.Static)
+        self.gallery.setWordWrap(True)
+        self.gallery.currentRowChanged.connect(self._gallery_selected)
+        self.issues.itemClicked.connect(self._issue_clicked)
+        self.class_bars = ClassBars()
+        self.split_view = SplitView()
+        self.thumbs_ready = False
 
         split_box = QGroupBox("Create dataset version (fixed, reproducible split)")
         form = QFormLayout(split_box)
@@ -108,6 +151,7 @@ class DataPage(QWidget):
         form.addRow("Validation fraction:", self.val)
         form.addRow("Test fraction:", self.test)
         form.addRow("Split seed:", self.seed)
+        form.addRow(self.split_view)
         form.addRow(self.split_preview)
         form.addRow(self.create_btn)
         form.addRow(self.result)
@@ -119,12 +163,21 @@ class DataPage(QWidget):
         lv = QVBoxLayout(left)
         lv.setContentsMargins(0, 0, 0, 0)
         lv.addWidget(self.summary)
+        lv.addWidget(self.class_bars)
         lv.addWidget(self.issues)
-        lv.addWidget(self.table, 1)
+        self.views = QTabWidget()
+        self.views.addTab(self.gallery, "Pictures")
+        self.views.addTab(self.table, "List")
+        lv.addWidget(self.views, 1)
         right = QWidget()
         rv = QVBoxLayout(right)
         rv.setContentsMargins(0, 0, 0, 0)
         rv.addWidget(self.preview, 1)
+        orow = QHBoxLayout()
+        orow.addWidget(QLabel("Mask opacity"))
+        orow.addWidget(self.opacity)
+        orow.addStretch(1)
+        rv.addLayout(orow)
         rv.addWidget(split_box)
         splitter = QSplitter()
         splitter.addWidget(left)
@@ -138,8 +191,9 @@ class DataPage(QWidget):
         layout.addWidget(splitter, 1)
 
     def set_advanced(self, on: bool) -> None:
-        """Beginner mode hides the split seed (the default is fine for almost everyone)."""
+        """Beginner mode hides the split seed and the text listing of the split (the tiles show it)."""
         self.form.setRowVisible(self.seed, on)
+        self.form.setRowVisible(self.split_preview, on)
 
     @staticmethod
     def _fraction(value: float) -> QDoubleSpinBox:
@@ -236,9 +290,11 @@ class DataPage(QWidget):
             images_with = {c.value: sum(1 for p in report.pairs if p.ok and p.class_pixels.get(c.value, 0))
                            for c in report.class_map.classes}
             grand = sum(totals.values()) or 1
-            classes = "<br>Classes (share of all pixels, images containing it): " + "; ".join(
-                f"{c.value} = {c.name} {100 * totals[c.value] / grand:.2f}% ({images_with[c.value]})"
-                for c in report.class_map.classes)
+            classes = "<br>Classes (mask value = name): " + ", ".join(f"{c.value} = {c.name}"
+                                                                       for c in report.class_map.classes)
+            n_ok = sum(1 for p in report.pairs if p.ok)
+            self.class_bars.set_rows([(c.name, c.color, totals[c.value] / grand, images_with[c.value], n_ok)
+                                      for c in report.class_map.classes])
             rare = [c.name for c in report.class_map.classes[1:] if 0 < totals[c.value] / grand < 0.02]
             if rare:
                 classes += (f"<br><span style='color:#8a5a00'>Rare classes ({', '.join(rare)}) cover under 2% of "
@@ -265,10 +321,58 @@ class DataPage(QWidget):
                     item.setForeground(QColor("#b42318"))
                 self.table.setItem(row, col, item)
         self.table.resizeColumnsToContents()
+        self._fill_gallery()
         if report.pairs:
-            self.table.selectRow(0)
+            first_problem = next((i for i, p in enumerate(report.pairs) if not p.ok), 0)
+            self.table.selectRow(first_problem)
         self.create_btn.setEnabled(report.ok)
         self._update_split_preview()
+
+    def _fill_gallery(self) -> None:
+        report = self.report
+        self.gallery.blockSignals(True)
+        self.gallery.clear()
+        problems: dict[str, list[str]] = {}
+        for issue in report.issues:
+            if issue.stem:
+                problems.setdefault(issue.stem, []).append(issue.message)
+        for pair in report.pairs:
+            item = QListWidgetItem(("\u26a0 " if not pair.ok else "") + pair.stem)
+            item.setToolTip("\n".join(problems.get(pair.stem, [])) or f"{pair.stem} - group {pair.group}")
+            if not pair.ok:
+                item.setForeground(QColor("#b42318"))
+            self.gallery.addItem(item)
+        self.gallery.blockSignals(False)
+        self.thumbs_ready = False
+        pairs, class_map = list(report.pairs), report.class_map
+
+        def done(thumbs) -> None:
+            if self.report is not report:
+                return  # a newer check replaced this one
+            for i, rgb in enumerate(thumbs):
+                if i < self.gallery.count():
+                    self.gallery.item(i).setIcon(QIcon(array_to_pixmap(rgb)))
+            self.thumbs_ready = True
+
+        run_background(lambda: [_pair_thumbnail(p, class_map) for p in pairs], done,
+                       lambda msg, details: setattr(self, "thumbs_ready", True))
+
+    def _gallery_selected(self, row: int) -> None:
+        if row >= 0 and row != self._selected_row():
+            self.table.selectRow(row)
+
+    def _selected_row(self) -> int:
+        rows = self.table.selectionModel().selectedRows() if self.table.selectionModel() else []
+        return rows[0].row() if rows else -1
+
+    def _issue_clicked(self, item: QListWidgetItem) -> None:
+        if not self.report:
+            return
+        text = item.text()
+        for i, pair in enumerate(self.report.pairs):
+            if f"[{pair.stem}]" in text:
+                self.table.selectRow(i)
+                return
 
     def _split_config(self) -> SplitConfig:
         return SplitConfig(train=self.train.value(), val=self.val.value(), test=self.test.value(),
@@ -278,11 +382,17 @@ class DataPage(QWidget):
     def _update_split_preview(self) -> None:
         if not self.report or not self.report.ok:
             self.split_preview.setText("")
+            if self.report is not None:
+                self.split_view.set_error("Fix the problems listed on the left; the split appears here once the "
+                                          "folder is ready.")
+            else:
+                self.split_view.set_plan({})
             return
         try:
             plan = plan_split(self.report, self._split_config())
         except SplitError as exc:
             self.split_preview.setText(f"<span style='color:#b42318'>{exc}</span>")
+            self.split_view.set_error(str(exc))
             self.create_btn.setEnabled(False)
             return
         self.create_btn.setEnabled(True)
@@ -293,24 +403,32 @@ class DataPage(QWidget):
             if p.ok:
                 groups[p.group] = plan[p.stem]
         counts = Counter(plan.values())
+        sizes = Counter(p.group for p in self.report.pairs if p.ok)
+        self.split_view.set_plan({g: (s, sizes[g]) for g, s in groups.items()})
         lines = []
         for split in ("train", "val", "test"):
             members = sorted(g for g, s in groups.items() if s == split)
             lines.append(f"<b>{split}</b>: {counts.get(split, 0)} images - groups {', '.join(members) or 'none'}")
         self.split_preview.setText("<br>".join(lines))
 
-    def _show_selected(self) -> None:
+    def _show_selected(self, *_args) -> None:
         rows = self.table.selectionModel().selectedRows() if self.table.selectionModel() else []
         if not rows or not self.report:
             return
-        pair = self.report.pairs[rows[0].row()]
+        row = rows[0].row()
+        if self.gallery.currentRow() != row:
+            self.gallery.blockSignals(True)
+            self.gallery.setCurrentRow(row)
+            self.gallery.blockSignals(False)
+        pair = self.report.pairs[row]
         try:
             image = to_unit_float(load_image(pair.image_path).array)
             if self.report.class_map and pair.ok:
                 labels = self.report.class_map.channel_lut()[decode_mask(load_mask_values(pair.mask_path),
                                                                          self.report.class_map)]
-                self.preview.set_array(tile_grid([to_display_rgb(image), overlay(image, labels, self.report.class_map)],
-                                                 columns=2))
+                alpha = self.opacity.value() / 100
+                shown = overlay(image, labels, self.report.class_map, alpha=alpha) if alpha else to_display_rgb(image)
+                self.preview.set_array(tile_grid([to_display_rgb(image), shown], columns=2))
             else:
                 self.preview.set_array(to_display_rgb(image))
         except Exception as exc:  # unreadable file: say so in the preview instead of crashing

@@ -304,7 +304,9 @@ def test_border_controls_and_class_balance(app, tmp_path):
     data = win.data_page
     data.create_demo_data()
     wait_until(app, lambda: data.report is not None and not data.busy)
-    assert "share of all pixels" in data.summary.text() and "Rare classes (pore)" in data.summary.text()
+    assert "Rare classes (pore)" in data.summary.text()
+    assert [r[0] for r in data.class_bars.rows] == ["matrix", "hydride", "pore"]
+    assert abs(sum(r[2] for r in data.class_bars.rows) - 1) < 1e-6
     data.create_version()
     wait_until(app, lambda: data.last_version_id is not None and not data.busy)
     aug = win.augment_page
@@ -499,4 +501,42 @@ def test_visual_preprocessing(app, tmp_path):
     aug.resize_factor.setValue(1.0)
     aug.refresh_preprocess()
     assert "thinner" not in aug.size_info.text() and "hydride about" in aug.size_info.text()
+    win.close()
+
+
+def test_visual_data_step(app, tmp_path):
+    import numpy as np
+    from PIL import Image
+
+    from microseg_workbench.core.synthetic import SyntheticSpec, write_synthetic_dataset
+    from microseg_workbench.gui.app import MainWindow
+
+    folder = tmp_path / "data"
+    write_synthetic_dataset(folder, SyntheticSpec(specimens=5, images_per_specimen=2, size=64))
+    bad = np.asarray(Image.open(folder / "S03_0002_mask.png")).copy()
+    bad[0, 0] = 9
+    Image.fromarray(bad).save(folder / "S03_0002_mask.png")
+    win = MainWindow(Workspace(tmp_path / "ws"), interactive=False)
+    data = win.data_page
+    data.folder.setText(str(folder))
+    data.check_folder()
+    wait_until(app, lambda: data.report is not None and not data.busy and data.thumbs_ready)
+    assert data.gallery.count() == 10 and all(not data.gallery.item(i).icon().isNull() for i in range(10))
+    bad_row = next(i for i, p in enumerate(data.report.pairs) if p.stem == "S03_0002")
+    assert data.gallery.currentRow() == bad_row  # the first problem is selected and shown
+    assert data.gallery.item(bad_row).text().startswith("\u26a0") and "not declared" in data.gallery.item(bad_row).toolTip()
+    assert data.split_view.error  # split waits until the folder is fixed
+    data.gallery.setCurrentRow(0)
+    assert data._selected_row() == 0  # gallery and list stay in sync
+    issue = next(data.issues.item(i) for i in range(data.issues.count()) if "S03_0002" in data.issues.item(i).text())
+    data._issue_clicked(issue)
+    assert data._selected_row() == bad_row
+    data.opacity.setValue(0)
+    assert data.preview.has_image()
+    Image.fromarray(np.where(bad == 9, 0, bad).astype(np.uint8)).save(folder / "S03_0002_mask.png")
+    data.check_folder()
+    wait_until(app, lambda: data.report is not None and data.report.ok and not data.busy)
+    plan = data.split_view.groups
+    assert set(plan) == {"S01", "S02", "S03", "S04", "S05"} and {s for s, _ in plan.values()} == {"train", "val", "test"}
+    assert all(n == 2 for _, n in plan.values()) and not data.split_view.error
     win.close()

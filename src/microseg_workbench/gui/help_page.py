@@ -53,6 +53,13 @@ but not approved are flagged, and results trained on them say so. If splits were
 <i>Split: As assigned in OnlineAnnotator</i>; this is refused if images of one specimen ended up in different
 splits.</p>
 
+<h3>Looking at your data (step 1)</h3>
+<p>After <i>Check folder</i>, the <b>Pictures</b> tab shows every image with its mask; pairs with problems have a red
+frame and a &#9888; - hover to read the problem, or click a problem in the list to jump to its picture. The bars show
+how much of all pixels each class covers and in how many images it occurs. The split panel shows each specimen group
+as a tile in the Training, Validation or Test column; a group is never split across columns. The <b>List</b> tab has the
+same information as a table.</p>
+
 <h3>Groups and leakage</h3>
 <p>Images from the same specimen or micrograph look alike. If some are in training and others in the test set,
 test scores are too optimistic. The <i>group pattern</i> extracts a group name from each file name (default: the

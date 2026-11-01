@@ -1,6 +1,8 @@
 # Changelog
 
 ## Unreleased (0.4.0)
+- Visual data step: picture gallery with problem pairs framed red (click a problem to jump to it), mask opacity slider,
+  class-balance bars, split shown as specimen tiles in Training/Validation/Test columns.
 - Visual preprocessing (step 2, tab A): drag the excluded border on the image; resize slider with before/after views
   at true pixel size and a warning when features would become thinner than ~1.5 px.
 - Guided workflow: step status icons with reasons, footer with "what to do here" and Back/Next, Beginner/Advanced

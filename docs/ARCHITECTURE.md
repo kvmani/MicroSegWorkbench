@@ -225,3 +225,10 @@ coordinates stay in original pixels. The resize view compares the same central r
 pixel size. The thin-feature warning uses feature width (2 x area / boundary length) times the resize factor, because
 nearest-neighbour shrinking roughly preserves total area while breaking thin features apart (area kept was tried and
 rejected as uninformative).
+
+### AD-22 Visual data step
+The data step shows a picture gallery (`QListWidget` icon mode; thumbnails built in a background task and only applied
+if no newer check replaced the report), with problem pairs framed red; gallery, list and issue list share one
+selection. `ClassBars` shows each class's pixel share (one bar colour, class colour as a swatch, values as text) and
+`SplitView` shows groups as tiles in Training/Validation/Test columns from the same `plan_split` used to create the
+version. The textual split listing remains in Advanced mode.

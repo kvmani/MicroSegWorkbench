@@ -47,6 +47,8 @@ status, Next buttons, Beginner/Advanced mode (Beginner default), ready-to-train 
   mode persistence, hidden expert rows, blocking checklist).
 - Part 3 done: visual preprocessing (AD-21). Test `test_visual_preprocessing` (drag sets/limits border, spin->editor
   sync, before/after views, thin-feature warning at x0.25 and none at x1). Full suite 162 passed, 5 skipped.
+- Part 4 done: visual data step (AD-22). Test `test_visual_data_step` (thumbnails, problem frame/selection, gallery-list-
+  issue sync, split tiles after fixing).
 
 ## Current objective
 Hand over for office rehearsal and independent review. Implementation agents should next address review findings
