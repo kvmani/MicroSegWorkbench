@@ -7,7 +7,9 @@ data checking -> immutable dataset version with leakage-safe split -> preprocess
 real model training with live progress, resource monitoring, resume and GPU safety -> test-set evaluation, run
 comparison and segmentation of new images -> publication to a shared folder, download by colleagues, independent
 review/approval, an optional metadata service with a read-only registry page, OnlineAnnotator export import and
-optional HydrideSegmentation feature statistics. Desktop UI and CLI. Office deployment: [DEPLOYMENT](docs/DEPLOYMENT.md).
+optional HydrideSegmentation feature statistics. Desktop UI for beginners (guided steps with status, workflow map,
+visual augmentation pipeline builder, drag-to-exclude borders, picture gallery and split tiles, run time estimate)
+and a CLI. Office deployment: [DEPLOYMENT](docs/DEPLOYMENT.md).
 Not yet verified on Windows or on a real GPU. See [PROGRESS](docs/PROGRESS.md) for evidence and known gaps.
 
 Start with [the specification](docs/SPECIFICATION.md). Coding agents follow [AGENTS.md](AGENTS.md); independent reviewers follow [REVIEW.md](REVIEW.md).

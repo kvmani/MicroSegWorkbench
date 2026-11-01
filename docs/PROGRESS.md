@@ -49,6 +49,10 @@ status, Next buttons, Beginner/Advanced mode (Beginner default), ready-to-train 
   sync, before/after views, thin-feature warning at x0.25 and none at x1). Full suite 162 passed, 5 skipped.
 - Part 4 done: visual data step (AD-22). Test `test_visual_data_step` (thumbnails, problem frame/selection, gallery-list-
   issue sync, split tiles after fixing).
+- Part 5 done: workflow map and run summary (AD-23). Test `test_workflow_map_and_run_summary`. Estimate 10.9 s vs.
+  real training loop ~11 s on the demo data (4 CPU cores). **All five approved UI parts are implemented.**
+  Full suite 164 passed, 5 skipped. Not yet tried by real beginners; interactive desktop session (DPI, real mouse
+  dragging of borders) still to be checked in the office.
 
 ## Current objective
 Hand over for office rehearsal and independent review. Implementation agents should next address review findings

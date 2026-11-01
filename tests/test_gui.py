@@ -540,3 +540,40 @@ def test_visual_data_step(app, tmp_path):
     assert set(plan) == {"S01", "S02", "S03", "S04", "S05"} and {s for s, _ in plan.values()} == {"train", "val", "test"}
     assert all(n == 2 for _, n in plan.values()) and not data.split_view.error
     win.close()
+
+
+def test_workflow_map_and_run_summary(app, tmp_path):
+    from microseg_workbench.core.dataset import create_dataset_version, validate_folder
+    from microseg_workbench.core.splits import DEFAULT_GROUP_REGEX, SplitConfig
+    from microseg_workbench.core.synthetic import SyntheticSpec, write_synthetic_dataset
+    from microseg_workbench.gui.app import MAP_NODES, MainWindow
+    from microseg_workbench.gui.workflow import DONE, LOCKED
+
+    ws = Workspace(tmp_path / "ws").ensure()
+    win = MainWindow(ws, interactive=False)
+    win.refresh_status()
+    assert [n[0] for n in win.map.nodes] == [n[0] for n in MAP_NODES]
+    assert win.map.nodes[1][1] == LOCKED and win.map.nodes[4][1] == LOCKED
+    write_synthetic_dataset(tmp_path / "data", SyntheticSpec(specimens=3, images_per_specimen=2, size=64))
+    version = create_dataset_version(validate_folder(tmp_path / "data", DEFAULT_GROUP_REGEX), SplitConfig(),
+                                     ws.datasets_dir, "d")
+    win.ctx.datasets_changed.emit()
+    win.refresh_status()
+    states = [n[1] for n in win.map.nodes]
+    assert states[1] == DONE and states[2] == DONE and states[5] == LOCKED
+    win.open_map_node(2)  # Preprocess node opens step 2, tab A
+    assert win.nav.currentRow() == 1 and win.augment_page.main_tabs.currentIndex() == 0
+    win.open_map_node(3)
+    assert win.augment_page.main_tabs.currentIndex() == 1
+    win.open_map_node(4)
+    assert win.nav.currentRow() == 2 and win.map.current == 4
+    train = win.train_page
+    train.device.setCurrentIndex(train.device.findData("cpu"))
+    train.refresh_estimate()
+    wait_until(app, lambda: train.estimate is not None and not train.estimating)
+    est = train.estimate
+    n_train = version.manifest["split_counts"]["train"]
+    assert est["patches_per_epoch"] == n_train * 8 and est["steps_per_epoch"] == -(-n_train * 8 // 8)
+    assert est["total_seconds"] > 0
+    assert "This run:" in train.summary_card.text() and "about" in train.summary_card.text()
+    win.close()

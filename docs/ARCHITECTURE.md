@@ -232,3 +232,12 @@ if no newer check replaced the report), with problem pairs framed red; gallery, 
 selection. `ClassBars` shows each class's pixel share (one bar colour, class colour as a swatch, values as text) and
 `SplitView` shows groups as tiles in Training/Validation/Test columns from the same `plan_split` used to create the
 version. The textual split listing remains in Advanced mode.
+
+### AD-23 Workflow map and run summary
+A clickable `WorkflowMap` above every page shows eight stages (images & masks, dataset version, preprocessing,
+augmentation, training, evaluation, comparison, sharing) with the AD-20 states; preprocessing/augmentation open the
+matching tab of step 2. The training page's "This run" card comes from `training/estimate.estimate_run`: dataset
+counts, model parameters, batch size (automatic -> CPU default or 16 on GPU, re-checked at start) and a time estimate
+from timing real forward/backward steps on dummy patches plus measured augmentation on a real training image and a
+validation allowance. It is labelled as rough; it ran within ~25 % of the real training loop on the demo data.
+Word-wrapped status texts sit outside `QFormLayout` (which clipped them) and the setup column scrolls.

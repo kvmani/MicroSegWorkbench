@@ -23,7 +23,12 @@ from .help_page import HelpPage
 from .results_page import ResultsPage
 from .share_page import SharePage
 from .train_page import TrainPage
-from .workflow import COLORS, GUIDE, ICONS, step_statuses
+from .workflow import ATTENTION, COLORS, DONE, GUIDE, ICONS, LOCKED, TODO, step_statuses
+from .workflow_map import WorkflowMap
+
+# workflow map nodes: (label, step index, sub-tab of step 2 or None)
+MAP_NODES = [("Images & masks", 0, None), ("Dataset version", 0, None), ("Preprocess", 1, 0), ("Augment", 1, 1),
+             ("Train", 2, None), ("Evaluate", 3, None), ("Compare", 4, None), ("Share", 5, None)]
 
 STEPS = ["1  Data", "2  Preprocess", "3  Training", "4  Results", "5  Compare", "6  Share", "?  Help"]
 
@@ -93,7 +98,10 @@ class MainWindow(QMainWindow):
         top.addWidget(self.advanced_btn)
         top.addSpacing(16)
         top.addWidget(change)
+        self.map = WorkflowMap()
+        self.map.clicked.connect(self.open_map_node)
         right = QVBoxLayout()
+        right.addWidget(self.map)
         right.addWidget(self.stack, 1)
         right.addWidget(footer)
         body = QHBoxLayout()
@@ -111,6 +119,7 @@ class MainWindow(QMainWindow):
         for sig in (self.ctx.datasets_changed, self.ctx.runs_changed, self.ctx.workflow_changed):
             sig.connect(self.status_timer.start)
         self.train_page.dataset.currentIndexChanged.connect(lambda _i: self.status_timer.start())
+        self.augment_page.main_tabs.currentChanged.connect(lambda _i: self.status_timer.start())
         self.train_page.device_info_changed = self.status_timer.start
         self.nav.setCurrentRow(0)
         self.setCentralWidget(central)
@@ -124,6 +133,34 @@ class MainWindow(QMainWindow):
     def _page_changed(self, row: int) -> None:
         self.stack.setCurrentIndex(row)
         self.refresh_status()
+        if row == 2:
+            self.train_page.schedule_estimate()
+
+    def open_map_node(self, index: int) -> None:
+        _label, step, tab = MAP_NODES[index]
+        if tab is not None:
+            self.augment_page.main_tabs.setCurrentIndex(tab)
+        self.go_to(step)
+
+    def map_states(self) -> list[tuple[str, str, str]]:
+        st = self.statuses
+        report = self.data_page.report
+        have_dataset = st[0].state == DONE
+        if have_dataset or (report is not None and report.ok):
+            images = (DONE, "Images and masks checked.")
+        elif report is not None:
+            images = (ATTENTION, "The folder has problems.")
+        else:
+            images = (TODO, "Check a folder of images and masks.")
+        version = (DONE, st[0].reason) if have_dataset else (
+            (TODO, "Create a dataset version.") if report is not None and report.ok else (LOCKED, "Check a folder first."))
+        if not have_dataset:
+            prep = (LOCKED, "Needs a dataset version.")
+        else:
+            blocked = [t for s, t in self.readiness() if s == "block" and t.startswith("Preprocessing")]
+            prep = (ATTENTION, blocked[0]) if blocked else (DONE, "Preprocessing fits every image (often nothing to do).")
+        states = [images, version, prep] + [(s.state, s.reason) for s in st[1:6]]
+        return [(label, s, reason) for (label, _i, _t), (s, reason) in zip(MAP_NODES, states)]
 
     def refresh_status(self) -> None:
         """Update step icons, the footer and the training checklist from the current state."""
@@ -144,6 +181,8 @@ class MainWindow(QMainWindow):
         if nxt < len(STEPS):
             self.next_btn.setText(f"Next: {GUIDE[nxt][0]} \u2192")
         self.train_page.update_readiness(self.readiness())
+        current = {0: 0, 1: 3 if self.augment_page.main_tabs.currentIndex() == 1 else 2, 2: 4, 3: 5, 4: 6, 5: 7}
+        self.map.set_nodes(self.map_states(), current.get(row, -1))
 
     def readiness(self) -> list[tuple[str, str]]:
         """Checklist shown above 'Start training'."""

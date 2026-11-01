@@ -1,6 +1,8 @@
 # Changelog
 
 ## Unreleased (0.4.0)
+- Workflow map across the top (eight stages coloured by status, click to go there) and a "This run" summary card with a
+  rough time estimate from timing one real training step on this computer.
 - Visual data step: picture gallery with problem pairs framed red (click a problem to jump to it), mask opacity slider,
   class-balance bars, split shown as specimen tiles in Training/Validation/Test columns.
 - Visual preprocessing (step 2, tab A): drag the excluded border on the image; resize slider with before/after views

@@ -14,6 +14,10 @@ Work through the steps on the left in order. Every step can also be run from the
 <li>The steps on the left show where you are: <b>&#10003;</b> done, <b>&#9888;</b> needs your attention, <b>&#8226;</b>
 to do, <b>&#9702;</b> optional, grey = not possible yet (hover for the reason).</li>
 <li>The bar at the bottom says <i>what to do here</i> and has <b>Next</b> and <b>Back</b> buttons.</li>
+<li>The <b>workflow map</b> across the top shows the whole path - images and masks, dataset version, preprocessing,
+augmentation, training, evaluation, comparison, sharing - coloured by status. Click a stage to go there.</li>
+<li>Before training, the blue <b>This run</b> card in step 3 says how many epochs, steps and patches will run, how big
+the model is and roughly how long it will take on this computer (timed with one real training step).</li>
 <li><b>Beginner</b> mode (top right) shows presets and visual controls only. <b>Advanced</b> adds every option with
 exact values. The choice is remembered for this workspace.</li>
 <li>Before training, the <b>Ready to train?</b> list in step 3 checks the dataset, preprocessing, augmentation check

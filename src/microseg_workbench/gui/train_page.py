@@ -16,7 +16,7 @@ from typing import Any, Callable
 from PySide6.QtCore import QProcess, QProcessEnvironment, Qt, QTimer  # noqa: F401
 from PySide6.QtGui import QPixmap
 from PySide6.QtWidgets import (
-    QComboBox, QDoubleSpinBox, QFormLayout, QGridLayout, QGroupBox, QHBoxLayout, QLabel, QProgressBar, QPushButton,
+    QScrollArea, QComboBox, QDoubleSpinBox, QFormLayout, QGridLayout, QGroupBox, QHBoxLayout, QLabel, QProgressBar, QPushButton,
     QSlider, QSpinBox, QTabWidget, QVBoxLayout, QWidget,
 )
 
@@ -61,6 +61,8 @@ def _fmt_seconds(s: float | None) -> str:
     if s is None:
         return "-"
     s = int(s)
+    if s < 60:
+        return f"{s} s"
     return f"{s // 3600}h {s % 3600 // 60:02d}m" if s >= 3600 else f"{s // 60}m {s % 60:02d}s"
 
 
@@ -119,6 +121,7 @@ class TrainPage(QWidget):
         self.preset.currentIndexChanged.connect(self._apply_preset)
         self.preset_note = QLabel("")
         self.preset_note.setWordWrap(True)
+        self.preset_note.setMinimumHeight(2 * self.preset_note.fontMetrics().lineSpacing() + 4)
         self.epochs = QSpinBox()
         self.epochs.setRange(1, 10000)
         self.batch = QSpinBox()
@@ -170,7 +173,11 @@ class TrainPage(QWidget):
         self.cancel_btn.clicked.connect(self.cancel)
 
         setup = QGroupBox("Setup")
-        form = QFormLayout(setup)
+        setup_outer = QVBoxLayout(setup)
+        form_host = QWidget()
+        form = QFormLayout(form_host)
+        form.setContentsMargins(0, 0, 0, 0)
+        setup_outer.addWidget(form_host)
         form.addRow("Dataset version:", self.dataset)
         form.addRow("Preset:", self.preset)
         form.addRow(self.preset_note)
@@ -184,16 +191,31 @@ class TrainPage(QWidget):
         form.addRow("Mixed precision:", self.precision)
         form.addRow("Early stopping after:", self.patience)
         form.addRow("Images in memory:", self.in_memory)
-        form.addRow(self.device_info)
+        setup_outer.addWidget(self.device_info)
         self.ready = QLabel("")
         self.ready.setWordWrap(True)
         self.ready.setTextFormat(Qt.TextFormat.RichText)
         self.ready.setStyleSheet("QLabel { background: #f6f6f4; border: 1px solid #d8d8d4; padding: 6px; }")
-        form.addRow(self.ready)
+        setup_outer.addWidget(self.ready)
+        self.summary_card = QLabel("")
+        self.summary_card.setWordWrap(True)
+        self.summary_card.setTextFormat(Qt.TextFormat.RichText)
+        self.summary_card.setStyleSheet("QLabel { background: #eef4fb; border: 1px solid #c9dcf2; padding: 6px; }")
+        setup_outer.addWidget(self.summary_card)
+        self.estimate: dict | None = None
+        self.estimating = False
+        self.estimate_timer = QTimer(self)
+        self.estimate_timer.setSingleShot(True)
+        self.estimate_timer.setInterval(600)
+        self.estimate_timer.timeout.connect(self.refresh_estimate)
+        for w in (self.epochs, self.batch, self.preset, self.device, self.dataset):
+            sig = getattr(w, "valueChanged", None) or w.currentIndexChanged
+            sig.connect(self.schedule_estimate)
         buttons = QHBoxLayout()
         buttons.addWidget(self.start_btn)
         buttons.addWidget(self.cancel_btn)
-        form.addRow(buttons)
+        setup_outer.addLayout(buttons)
+        setup_outer.addStretch(1)
         self.form = form
         self.blocking: list[str] = []
         self.set_advanced(ctx.advanced)
@@ -262,7 +284,13 @@ class TrainPage(QWidget):
         right.addLayout(charts, 1)
         right.addWidget(self.tabs, 1)
         body = QHBoxLayout()
-        body.addWidget(setup)
+        setup_scroll = QScrollArea()  # Advanced mode has many rows; scroll rather than clip the checklist
+        setup_scroll.setWidgetResizable(True)
+        setup_scroll.setWidget(setup)
+        setup_scroll.setFrameShape(QScrollArea.Shape.NoFrame)
+        setup_scroll.setMinimumWidth(440)
+        setup_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        body.addWidget(setup_scroll)
         body.addLayout(right, 1)
         layout = QVBoxLayout(self)
         layout.addWidget(hint(HELP))
@@ -283,6 +311,48 @@ class TrainPage(QWidget):
         """Beginner mode shows dataset, preset, epochs and device only; Advanced shows every training option."""
         for name in self.EXPERT_FIELDS:
             self.form.setRowVisible(getattr(self, name), on)
+
+    def schedule_estimate(self, *_args) -> None:
+        if self.dataset.currentData():
+            self.estimate_timer.start()
+
+    def refresh_estimate(self) -> None:
+        """Estimate this run in the background (one timed training step) and show the summary card."""
+        if self.is_running() or self.estimating:
+            return
+        try:
+            cfg = self.build_config()
+        except Exception as exc:  # invalid settings are explained by the checklist / start button
+            self.summary_card.setText(f"<b>This run:</b> cannot be estimated ({exc}).")
+            return
+        ws = self.ctx.workspace
+        self.estimating = True
+        self.summary_card.setText("<b>This run:</b> estimating...")
+
+        def work() -> dict:
+            from ..training.estimate import estimate_run
+
+            return estimate_run(cfg, ws)
+
+        def done(est: dict) -> None:
+            self.estimating = False
+            self.estimate = est
+            mem = est["data_memory_bytes"] / 2**20
+            batch = f"{est['batch_size']}" + (" (automatic: checked again when training starts)" if est["auto_batch"]
+                                              else "")
+            self.summary_card.setText(
+                f"<b>This run:</b> {est['epochs']} epochs x {est['steps_per_epoch']} steps; each epoch uses "
+                f"{est['patches_per_epoch']} patches of {est['patch_size']} px from {est['train_images']} training "
+                f"images; batch size {batch}.<br>Model: U-Net with {est['parameters']:,} parameters on "
+                f"{est['device']}.<br><b>Time:</b> about {_fmt_seconds(est['total_seconds'])} "
+                f"<span style='color:#6b6b6b'>(rough, from timing one step on this computer)</span>. "
+                f"<b>Images in memory:</b> about {mem:.1f} MB.")
+
+        def failed(message: str, _details: str) -> None:
+            self.estimating = False
+            self.summary_card.setText(f"<b>This run:</b> could not be estimated ({message}).")
+
+        run_background(work, done, failed)
 
     def update_readiness(self, items: list[tuple[str, str]]) -> None:
         """Show the 'Ready to train?' checklist; items are (state, text) with state ok/warn/todo/block."""
