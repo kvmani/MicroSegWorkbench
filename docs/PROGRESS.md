@@ -6,6 +6,26 @@ data, a local mock share, an in-process metadata service and the real HydrideSeg
 No phase is formally closed: the remaining work is verification in the office (Windows workstation, NVIDIA GPU,
 SMB share, Ubuntu VM), an independent review (REVIEW.md), and a few deliberately deferred items (see Known gaps).
 
+## Independent review handoff — 2026-11-01
+- Codex reviewed baseline `47449da592abdb876bae7cfbbbd2a9750d65fb79` under REVIEW.md. Report and findings:
+  [REVIEWS.md](REVIEWS.md), IDs **RV-20261101-001..008**, all Open: **7 High, 1 Medium**; no Critical established.
+- **Readiness: changes required.** High findings block the affected workflows/dependent phase closure. Prioritize
+  immutable dataset/run identity and leakage guard (001), mask snapshot integrity (002), approval provenance
+  identity (003), destination path validation (004), no-replace publication (005), corrupt-blob reuse (006),
+  inference output collisions (007), then active-stage cleanup (008).
+- Test evidence, Linux / Python 3.12.14 / torch 2.15.0+cpu / Qt offscreen: full suite **123 passed, 5 skipped**
+  in 132.39 s; optional real HydrideSegmentation module **3 passed** in 15.02 s. Three actual network-share
+  tests remain unexecuted. No Windows/CUDA/office deployment verification was performed here.
+- Ten independent defect-confirming probes **passed in 2.93 s** (passes establish defects, not correctness),
+  including real CPU training followed by contaminated reevaluation. Runnable source and instructions:
+  [REVIEW_REPRODUCTIONS_2026-11-01.md](REVIEW_REPRODUCTIONS_2026-11-01.md).
+- Documentation-only increment; no application/test implementation edits or reference-repository changes.
+  The review commit is the commit introducing this handoff section (see `git log -- docs/REVIEWS.md`).
+- Next for Claude/implementers: fix each finding with safe-behavior regression tests, record fix commits and
+  executed checks against its review ID, retain history, and request independent verification before closure.
+  Continue the existing office rehearsal after resolving affected High findings. Earlier statements below
+  that independent review is outstanding describe the pre-review implementation handoff.
+
 ## Current objective
 Hand over for office rehearsal and independent review. Implementation agents should next address review findings
 and the highest-value remaining gaps (multi-process augmentation, CUDA package, service authentication).
