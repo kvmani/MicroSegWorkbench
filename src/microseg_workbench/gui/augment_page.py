@@ -1,67 +1,264 @@
-"""Step 2: configure augmentation and preview it on real samples."""
+"""Step 2: preprocessing and a visual augmentation pipeline builder.
+
+The pipeline is drawn in the exact order training applies it (from ``core.augment_pipeline.PIPELINE``). Every block
+shows what it does to the user's own image; galleries and the step-by-step strip come from the real ``augment``
+function (via its trace), so what is shown is what training will do.
+"""
 
 from __future__ import annotations
 
+from typing import Any
+
+import numpy as np
+from PySide6.QtCore import Qt, QTimer
 from PySide6.QtWidgets import (
-    QCheckBox, QComboBox, QDoubleSpinBox, QFormLayout, QGroupBox, QHBoxLayout, QLabel, QPushButton, QSpinBox, QVBoxLayout,
+    QButtonGroup, QCheckBox, QComboBox, QDoubleSpinBox, QFormLayout, QHBoxLayout, QInputDialog, QLabel,
+    QPushButton, QScrollArea, QSlider, QSpinBox, QSplitter, QTableWidget, QTableWidgetItem, QTabWidget, QVBoxLayout,
     QWidget,
 )
 
-from ..core.augment import PHOTOMETRIC_OPS, AugmentConfig, AugmentConfigError
+from ..core.augment import PHOTOMETRIC_OPS, AugmentConfig, AugmentConfigError, augment
+from ..core.augment_pipeline import (
+    INTENSITY_GROUP_FIELD, PIPELINE, PRESET_HELP, PRESETS, STEPS, apply_preset, expected_rate, list_recipes,
+    load_recipe, matching_preset, preview_step, sanity_check, save_recipe,
+)
 from ..core.dataset import DatasetVersion, list_dataset_versions
 from ..core.imageio import load_image, load_mask_values, to_unit_float
 from ..core.preprocess import NORMALIZATIONS, Preprocess, PreprocessError, resize_image, resize_labels
-from ..core.render import augmentation_preview
+from ..core.render import overlay, thumbnail, to_display_rgb
 from .context import AppContext
-from .widgets import ImageView, hint
+from .pipeline_widgets import (
+    ACCENT, GEOMETRY_COLOR, INTENSITY_COLOR, Arrow, ClickableImage, Dots, SliderSpin, StepCard, group_frame,
+    make_spin, rect_tile_caption,
+)
+from .widgets import ImageView, hint, run_background
 
-HELP = ("<b>Step 2 - Preprocessing and augmentation.</b> <i>Resize factor</i> scales images before the model sees "
-        "them (0.5 = half width and height, for very large micrographs); results are always mapped back and scored "
-        "at the original resolution. <i>Per-image standardization</i> removes brightness/contrast differences "
-        "between acquisitions. During training each image is randomly flipped, rotated and its "
-        "brightness/contrast varied so the model learns features rather than one specimen's look. The mask is "
-        "always moved together with the image; brightness changes never touch the mask. Grey hatching marks "
-        "pixels outside the original image, which are <i>ignored</i> during training. Press <b>Preview</b> to "
-        "see the settings on a real sample (top: image, bottom: mask overlay). These settings are used in step 3.")
+HELP = ("<b>Step 2 - Preprocessing and augmentation.</b> During training every patch passes through the pipeline "
+        "below, <b>from left to right, top row first</b>. Pick a starting point (<i>Gentle</i> or <i>Standard</i> "
+        "suit most data), then switch blocks on or off and drag the sliders: each block shows its weakest and "
+        "strongest effect on your own image, and the patches at the bottom show what the model will see. Blue blocks "
+        "move image and mask together; orange blocks change the image only. Run <b>Check these settings</b> before "
+        "training.")
 
-FIELDS = [
-    # name, label, kind, min, max, step, tooltip
-    ("patch_size", "Training patch size (px)", int, 16, 1024, 8, "Square crop fed to the model; multiple of 8."),
-    ("hflip", "Left-right flip probability", float, 0, 1, 0.05, "Chance of a horizontal mirror."),
-    ("vflip", "Up-down flip probability", float, 0, 1, 0.05, "Chance of a vertical mirror."),
-    ("rot90", "90-degree rotation probability", float, 0, 1, 0.05, "Chance of rotating by 90, 180 or 270 degrees."),
-    ("rotate_prob", "Free rotation probability", float, 0, 1, 0.05,
-     "Chance of a small arbitrary rotation (corners become 'ignore')."),
-    ("rotate_max_deg", "Free rotation max angle (deg)", float, 0, 180, 1, "Largest free rotation angle."),
-    ("photometric_prob", "Brightness/contrast probability", float, 0, 1, 0.05,
-     "Chance of applying the intensity changes below."),
-    ("brightness", "Brightness change (max)", float, 0, 0.5, 0.01, "Largest added intensity, as a fraction of full scale."),
-    ("contrast", "Contrast change (max)", float, 0, 0.9, 0.01, "Largest relative contrast change."),
-    ("gamma", "Gamma change (max log)", float, 0, 1, 0.05, "Non-linear intensity change; 0 = off."),
-    ("noise_std", "Noise level (std)", float, 0, 0.3, 0.005, "Added Gaussian noise; 0 = off."),
-    ("blur_max_sigma", "Blur (max sigma, px)", float, 0, 5, 0.1, "Random Gaussian blur up to this width; 0 = off."),
-]
+PERCENT = {"hflip", "vflip", "rot90", "rotate_prob", "photometric_prob"}
+DEFAULT_ON = {"hflip": 0.5, "vflip": 0.5, "rot90": 0.5, "rotate_prob": 0.3, "contrast": 0.15, "brightness": 0.08,
+              "gamma": 0.2, "noise_std": 0.02, "blur_max_sigma": 1.0}
+GALLERY = 12
+
+
+def _fmt(field: str):
+    if field in PERCENT:
+        return lambda v: f"{v * 100:.0f} %"
+    return {"rotate_max_deg": lambda v: f"up to {v:.0f} deg", "patch_size": lambda v: f"{v:.0f} px",
+            "contrast": lambda v: f"+/- {v * 100:.0f} %", "brightness": lambda v: f"+/- {v:.2f}",
+            "gamma": lambda v: f"+/- {v:.2f}", "noise_std": lambda v: f"sd {v:.3f}",
+            "blur_max_sigma": lambda v: f"up to {v:.1f} px"}.get(field, lambda v: f"{v:.3g}")
 
 
 class AugmentPage(QWidget):
     def __init__(self, ctx: AppContext) -> None:
         super().__init__()
         self.ctx = ctx
+        self.seed = 0
+        self._sample_cache: tuple[Any, ...] | None = None
+        self.selected_step = "rotate"
+        self.tile_index = 0
+        self.last_check: dict | None = None
+        self.checking = False
+        self._remembered: dict[str, float] = dict(DEFAULT_ON)
+        self.refresh_timer = QTimer(self)
+        self.refresh_timer.setSingleShot(True)
+        self.refresh_timer.setInterval(250)
+        self.refresh_timer.timeout.connect(self.preview)
+
+        # ---- top bar: data, presets, recipes ----------------------------------------------------------------
         self.dataset = QComboBox()
         self.dataset.currentIndexChanged.connect(self._load_samples)
         self.sample = QComboBox()
+        self.sample.currentIndexChanged.connect(self._sample_changed)
+        self.preset_buttons: dict[str, QPushButton] = {}
+        self.preset_group = QButtonGroup(self)
+        presets = QHBoxLayout()
+        presets.addWidget(QLabel("Start from:"))
+        for name in PRESETS:
+            b = QPushButton(name.title())
+            b.setCheckable(True)
+            b.setToolTip(PRESET_HELP[name])
+            b.clicked.connect(lambda _c=False, n=name: self.use_preset(n))
+            self.preset_group.addButton(b)
+            self.preset_buttons[name] = b
+            presets.addWidget(b)
+        self.recipes = QComboBox()
+        self.recipes.setToolTip("Your saved settings in this workspace")
+        load_btn = QPushButton("Load")
+        load_btn.clicked.connect(lambda: self.load_recipe(self.recipes.currentText()))
+        save_btn = QPushButton("Save as...")
+        save_btn.clicked.connect(self._save_dialog)
+        top = QHBoxLayout()
+        top.addWidget(QLabel("Dataset version:"))
+        top.addWidget(self.dataset, 2)
+        top.addWidget(QLabel("Example image:"))
+        top.addWidget(self.sample, 1)
+        top.addSpacing(12)
+        top.addLayout(presets)
+        top.addSpacing(12)
+        top.addWidget(QLabel("My settings:"))
+        top.addWidget(self.recipes, 1)
+        top.addWidget(load_btn)
+        top.addWidget(save_btn)
+
+        # ---- exact-value inputs (source of truth) ---------------------------------------------------------------
+        d = AugmentConfig()
         self.inputs: dict[str, QSpinBox | QDoubleSpinBox] = {}
-        prep_box = QGroupBox("Preprocessing (training, evaluation and prediction)")
-        prep_form = QFormLayout(prep_box)
+        for f, (lo, hi, step) in {"hflip": (0, 1, 0.05), "vflip": (0, 1, 0.05), "rot90": (0, 1, 0.05),
+                                  "rotate_prob": (0, 1, 0.05), "rotate_max_deg": (0, 90, 1),
+                                  "photometric_prob": (0, 1, 0.05), "patch_size": (16, 1024, 8),
+                                  "contrast": (0, 0.9, 0.01), "brightness": (0, 0.5, 0.01), "gamma": (0, 1, 0.05),
+                                  "noise_std": (0, 0.3, 0.005), "blur_max_sigma": (0, 5, 0.1)}.items():
+            spin = make_spin(lo, hi, step, getattr(d, f), integer=f == "patch_size")
+            spin.valueChanged.connect(self._changed)
+            self.inputs[f] = spin
+        self.sliders = {f: SliderSpin(spin, _fmt(f)) for f, spin in self.inputs.items()}
+
+        # ---- pipeline view ----------------------------------------------------------------------------------
+        self.cards: dict[str, StepCard] = {}
+        geo_frame, geo_lay = group_frame("1. Geometry - image and mask move together (blue)", GEOMETRY_COLOR)
+        geo_row = QHBoxLayout()
+        int_frame, int_lay = group_frame("2. Intensity - image only, the mask never changes (orange)", INTENSITY_COLOR)
+        group_row = QHBoxLayout()
+        group_row.addWidget(QLabel("Apply intensity changes to"))
+        group_row.addWidget(self.sliders["photometric_prob"], 1)
+        self.group_dots = Dots()
+        group_row.addWidget(self.group_dots)
+        group_row.addWidget(QLabel("of patches (then every block switched on below, in order)"))
+        int_lay.addLayout(group_row)
+        int_row = QHBoxLayout()
+        for step in PIPELINE:
+            prob = self.sliders[step.prob_field] if step.prob_field else None
+            strength = self.sliders[step.strength_field] if step.strength_field else None
+            card = StepCard(step.id, step.title, step.kind, step.help, prob, strength, ("", ""))
+            card.enable.toggled.connect(lambda on, s=step.id: self._toggle(s, on))
+            card.selected.connect(self.select_step)
+            self.cards[step.id] = card
+            row = int_row if step.kind == "intensity" else geo_row
+            if row.count():
+                row.addWidget(Arrow())
+            row.addWidget(card)
+        self.extra: dict[str, tuple[QCheckBox, QDoubleSpinBox]] = {}
+        for name, spec in sorted(PHOTOMETRIC_OPS.items()):
+            prob_spin = make_spin(0, 1, 0.05, 0.5)
+            prob_spin.valueChanged.connect(self._changed)
+            card = StepCard(f"extra:{name}", name, "plugin", f"{spec['description']} (plugin {spec['module']})",
+                            SliderSpin(prob_spin, _fmt("hflip")), None, ("original", "applied"))
+            card.enable.setChecked(False)
+            card.enable.toggled.connect(self._changed)
+            card.selected.connect(self.select_step)
+            self.cards[f"extra:{name}"] = card
+            self.extra[name] = (card.enable, prob_spin)
+            int_row.addWidget(Arrow())
+            int_row.addWidget(card)
+        out_label = QLabel("Training\npatch")
+        out_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        out_label.setStyleSheet(f"QLabel {{ color: {ACCENT}; font-weight: 600; }}")
+        int_row.addWidget(Arrow())
+        int_row.addWidget(out_label)
+        geo_row.addStretch(1)
+        int_row.addStretch(1)
+        geo_lay.addLayout(geo_row)
+        int_lay.addLayout(int_row)
+        pipe = QWidget()
+        pv = QVBoxLayout(pipe)
+        pv.addWidget(geo_frame)
+        pv.addWidget(int_frame)
+        pv.addStretch(1)
+        pipe_scroll = QScrollArea()
+        pipe_scroll.setWidgetResizable(True)
+        pipe_scroll.setWidget(pipe)
+
+        # ---- bottom tabs ------------------------------------------------------------------------------------
+        self.tiles: list[ClickableImage] = []
+        gallery = QWidget()
+        gl = QVBoxLayout(gallery)
+        gbar = QHBoxLayout()
+        self.show_mask = QCheckBox("Show mask")
+        self.show_mask.setChecked(True)
+        self.show_mask.toggled.connect(self._redraw_tiles)
+        self.opacity = QSlider(Qt.Orientation.Horizontal)
+        self.opacity.setRange(10, 90)
+        self.opacity.setValue(45)
+        self.opacity.setMaximumWidth(160)
+        self.opacity.valueChanged.connect(self._redraw_tiles)
+        new_btn = QPushButton("New random examples")
+        new_btn.clicked.connect(self._new_examples)
+        gbar.addWidget(QLabel("What the model will see - 12 random training patches. Click one to see how it was made."))
+        gbar.addStretch(1)
+        gbar.addWidget(self.show_mask)
+        gbar.addWidget(QLabel("opacity"))
+        gbar.addWidget(self.opacity)
+        gbar.addWidget(new_btn)
+        grid = QHBoxLayout()
+        for i in range(GALLERY):
+            t = ClickableImage(104)
+            t.clicked.connect(lambda i=i: self.show_steps(i))
+            self.tiles.append(t)
+            grid.addWidget(t)
+        grid.addStretch(1)
+        self.captions = QLabel("")
+        self.captions.setWordWrap(True)
+        gl.addLayout(gbar)
+        gl.addLayout(grid)
+        gl.addWidget(self.captions)
+        gl.addStretch(1)
+        self._patches: list[tuple[np.ndarray, np.ndarray, list]] = []
+
+        steps_tab = QWidget()
+        self.steps_layout = QHBoxLayout()
+        sw = QWidget()
+        sw.setLayout(self.steps_layout)
+        steps_scroll = QScrollArea()
+        steps_scroll.setWidgetResizable(True)
+        steps_scroll.setWidget(sw)
+        self.steps_note = QLabel("Click a training patch to follow it through the pipeline.")
+        sl = QVBoxLayout(steps_tab)
+        sl.addWidget(self.steps_note)
+        sl.addWidget(steps_scroll, 1)
+
+        detail = QWidget()
+        dl = QVBoxLayout(detail)
+        self.detail_title = QLabel("")
+        self.detail_title.setWordWrap(True)
+        self.detail_view = ImageView("Select a block")
+        dl.addWidget(self.detail_title)
+        dl.addWidget(self.detail_view, 1)
+
+        check = QWidget()
+        cl = QVBoxLayout(check)
+        crow = QHBoxLayout()
+        self.check_btn = QPushButton("Check these settings")
+        self.check_btn.setToolTip("Runs the real pipeline on 200 patches and looks for problems.")
+        self.check_btn.clicked.connect(self.run_check)
+        crow.addWidget(self.check_btn)
+        crow.addStretch(1)
+        self.findings = QLabel("Not checked yet.")
+        self.findings.setWordWrap(True)
+        self.findings.setTextFormat(Qt.TextFormat.RichText)
+        self.rates = QTableWidget(0, 3)
+        self.rates.setHorizontalHeaderLabels(["Block", "Set to", "Measured on 200 patches"])
+        self.rates.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
+        cl.addLayout(crow)
+        cl.addWidget(self.findings)
+        cl.addWidget(self.rates, 1)
+
+        prep = QWidget()
+        prep_form = QFormLayout(prep)
         self.resize_factor = QDoubleSpinBox()
         self.resize_factor.setRange(0.1, 4.0)
         self.resize_factor.setSingleStep(0.05)
         self.resize_factor.setValue(1.0)
-        self.resize_factor.setToolTip("1.0 keeps the original size. Masks are resized with nearest neighbour; very thin "
-                               "features can vanish when shrinking - check the preview.")
+        self.resize_factor.setToolTip("1.0 keeps the original size. Masks are resized with nearest neighbour; very "
+                                      "thin features can vanish when shrinking - check the patches.")
         self.normalization = QComboBox()
-        labels = {"dtype_range": "Scale by bit depth (default)",
-                  "per_image_standardize": "Per-image standardization"}
+        labels = {"dtype_range": "Scale by bit depth (default)", "per_image_standardize": "Per-image standardization"}
         for key in NORMALIZATIONS:
             self.normalization.addItem(labels[key], key)
         self.border: list[QSpinBox] = []
@@ -70,78 +267,45 @@ class AugmentPage(QWidget):
             b = QSpinBox()
             b.setRange(0, 10000)
             b.setToolTip(f"Pixels at the {label} edge that are never trained on or scored (e.g. an SEM data bar).")
+            b.valueChanged.connect(self._prep_changed)
             border_row.addWidget(QLabel(label))
             border_row.addWidget(b)
             self.border.append(b)
+        self.resize_factor.valueChanged.connect(self._prep_changed)
+        self.normalization.currentIndexChanged.connect(self._prep_changed)
         prep_form.addRow("Resize factor:", self.resize_factor)
         prep_form.addRow("Exclude border (px):", border_row)
         prep_form.addRow("Intensity normalization:", self.normalization)
-        box = QGroupBox("Augmentation settings")
-        form = QFormLayout(box)
-        defaults = AugmentConfig()
-        for name, label, kind, lo, hi, step, tip in FIELDS:
-            w = QSpinBox() if kind is int else QDoubleSpinBox()
-            if isinstance(w, QDoubleSpinBox):
-                w.setDecimals(3)
-            w.setRange(lo, hi)
-            w.setSingleStep(step)
-            w.setValue(getattr(defaults, name))
-            w.setToolTip(tip)
-            form.addRow(label + ":", w)
-            self.inputs[name] = w
-        self.extra: dict[str, tuple[QCheckBox, QDoubleSpinBox]] = {}
-        for name, spec in sorted(PHOTOMETRIC_OPS.items()):
-            check = QCheckBox(name)
-            check.setToolTip(f"{spec['description']} (plugin {spec['module']}; image only, masks unchanged)")
-            prob = QDoubleSpinBox()
-            prob.setRange(0, 1)
-            prob.setSingleStep(0.05)
-            prob.setValue(0.5)
-            row = QHBoxLayout()
-            row.addWidget(check)
-            row.addWidget(QLabel("probability"))
-            row.addWidget(prob)
-            form.addRow("Plugin operation:", row)
-            self.extra[name] = (check, prob)
-        self.seed = QSpinBox()
-        self.seed.setRange(0, 999999)
-        self.seed.setToolTip("Different preview seeds show different random variants.")
-        form.addRow("Preview seed:", self.seed)
-        reset = QPushButton("Reset to defaults")
-        reset.clicked.connect(self.reset)
-        self.preview_btn = QPushButton("Preview")
-        self.preview_btn.clicked.connect(self.preview)
-        buttons = QHBoxLayout()
-        buttons.addWidget(reset)
-        buttons.addWidget(self.preview_btn)
-        form.addRow(buttons)
 
-        self.view = ImageView("Press Preview")
-        self.captions = QLabel("")
-        self.captions.setWordWrap(True)
+        self.tabs = QTabWidget()
+        self.tabs.addTab(gallery, "Training patches")
+        self.tabs.addTab(steps_tab, "Step by step")
+        self.tabs.addTab(detail, "Selected block")
+        self.tabs.addTab(check, "Check settings")
+        self.tabs.addTab(prep, "Preprocessing")
 
-        top = QHBoxLayout()
-        top.addWidget(QLabel("Dataset version:"))
-        top.addWidget(self.dataset, 2)
-        top.addWidget(QLabel("Sample:"))
-        top.addWidget(self.sample, 1)
-        right = QVBoxLayout()
-        right.addWidget(self.view, 1)
-        right.addWidget(self.captions)
-        left = QVBoxLayout()
-        left.addWidget(prep_box)
-        left.addWidget(box)
-        left.addStretch(1)
-        body = QHBoxLayout()
-        body.addLayout(left)
-        body.addLayout(right, 1)
+        splitter = QSplitter(Qt.Orientation.Vertical)
+        splitter.addWidget(pipe_scroll)
+        splitter.addWidget(self.tabs)
+        splitter.setSizes([560, 250])
         layout = QVBoxLayout(self)
         layout.addWidget(hint(HELP))
         layout.addLayout(top)
-        layout.addLayout(body, 1)
+        layout.addWidget(splitter, 1)
         ctx.datasets_changed.connect(self.refresh)
+        self._sync_cards()
+        self.set_advanced(False)
         self.refresh()
 
+    def set_advanced(self, on: bool) -> None:
+        """Advanced mode shows exact-value boxes next to every slider."""
+        self.advanced = on
+        for s in self.sliders.values():
+            s.set_exact_visible(on)
+        for name, (_check, prob) in self.extra.items():
+            prob.setVisible(on)
+
+    # ---- data -------------------------------------------------------------------------------------------------
     def refresh(self) -> None:
         current = self.dataset.currentData()
         self.dataset.blockSignals(True)
@@ -151,6 +315,8 @@ class AugmentPage(QWidget):
         idx = self.dataset.findData(current)
         self.dataset.setCurrentIndex(idx if idx >= 0 else self.dataset.count() - 1)
         self.dataset.blockSignals(False)
+        self.recipes.clear()
+        self.recipes.addItems(list_recipes(self.ctx.workspace.root))
         self._load_samples()
 
     def _version(self) -> DatasetVersion | None:
@@ -158,21 +324,51 @@ class AugmentPage(QWidget):
         return DatasetVersion.open(self.ctx.workspace.datasets_dir / dataset_id) if dataset_id else None
 
     def _load_samples(self) -> None:
+        self.sample.blockSignals(True)
         self.sample.clear()
         version = self._version()
         if version:
             for s in version.samples("train"):
                 self.sample.addItem(s["stem"], s["stem"])
+        self.sample.blockSignals(False)
+        self._sample_changed()
 
-    def reset(self) -> None:
-        defaults = AugmentConfig()
-        for name, w in self.inputs.items():
-            w.setValue(getattr(defaults, name))
-        for check, _prob in self.extra.values():
-            check.setChecked(False)
+    def _sample_changed(self) -> None:
+        self._sample_cache = None
+        self.schedule()
 
+    def _prep_changed(self) -> None:
+        self._sample_cache = None
+        self.schedule()
+
+    def _model_scale_sample(self) -> tuple[np.ndarray, np.ndarray, Any, str]:
+        """(image, channel labels, version, size note) of the chosen example after preprocessing (cached)."""
+        version = self._version()
+        stem = self.sample.currentData()
+        prep = self.preprocess()
+        key = (version.dataset_id if version else None, stem, prep)
+        if self._sample_cache and self._sample_cache[0] == key:
+            return self._sample_cache[1]
+        sample = next(s for s in version.samples() if s["stem"] == stem)
+        image = to_unit_float(load_image(version.image_path(sample)).array)
+        labels = version.class_map.channel_lut()[load_mask_values(version.mask_path(sample))]
+        image, labels = prep.crop(image), prep.crop(labels)
+        original = labels.shape
+        shape = prep.scaled_shape(*original)
+        image, labels = resize_image(image, shape), resize_labels(labels, shape)
+        note = (f"Resized from {original[0]}x{original[1]} to {shape[0]}x{shape[1]} px. " if shape != original else "")
+        if any(prep.exclude_border):
+            note = f"Border excluded; analysed region {original[0]}x{original[1]} px. " + note
+        if prep.normalization != "dtype_range":
+            note += "Shown before standardization (standardized values are not displayable). "
+        value = (image, labels, version, note)
+        self._sample_cache = (key, value)
+        return value
+
+    # ---- settings -------------------------------------------------------------------------------------------
     def preprocess(self) -> Preprocess:
-        return Preprocess(resize_factor=round(self.resize_factor.value(), 4), normalization=self.normalization.currentData(),
+        return Preprocess(resize_factor=round(self.resize_factor.value(), 4),
+                          normalization=self.normalization.currentData(),
                           exclude_border=tuple(b.value() for b in self.border))
 
     def config(self) -> AugmentConfig:
@@ -181,6 +377,99 @@ class AugmentPage(QWidget):
                       for n, (check, prob) in self.extra.items() if check.isChecked())
         return AugmentConfig(**{name: w.value() for name, w in self.inputs.items()}, extra_ops=extra)
 
+    def set_config(self, cfg: AugmentConfig) -> None:
+        for name, spin in self.inputs.items():
+            spin.blockSignals(True)
+            spin.setValue(getattr(cfg, name))
+            spin.blockSignals(False)
+        chosen = {o["name"]: o for o in cfg.extra_ops}
+        for name, (check, prob) in self.extra.items():
+            check.blockSignals(True)
+            check.setChecked(name in chosen)
+            check.blockSignals(False)
+            if name in chosen:
+                prob.setValue(float(chosen[name].get("probability", 0.5)))
+        for s in self.sliders.values():
+            s._from_spin()
+        self._changed()
+
+    def reset(self) -> None:
+        self.use_preset("standard")
+
+    def use_preset(self, name: str) -> None:
+        self.set_config(apply_preset(self.config(), name))
+
+    def load_recipe(self, name: str) -> None:
+        if not name:
+            self.ctx.error(self, "Load settings", "There are no saved settings yet.")
+            return
+        self.set_config(load_recipe(self.ctx.workspace.root, name))
+        self.ctx.status_message.emit(f"Loaded augmentation settings '{name}'.")
+
+    def save_recipe(self, name: str) -> None:
+        try:
+            path = save_recipe(self.ctx.workspace.root, name, self.config())
+        except (ValueError, AugmentConfigError) as exc:
+            self.ctx.error(self, "Save settings", str(exc))
+            return
+        self.recipes.clear()
+        self.recipes.addItems(list_recipes(self.ctx.workspace.root))
+        self.recipes.setCurrentText(path.stem)
+        self.ctx.status_message.emit(f"Saved augmentation settings as '{path.stem}'.")
+
+    def _save_dialog(self) -> None:
+        name, ok = QInputDialog.getText(self, "Save augmentation settings", "Name:")
+        if ok:
+            self.save_recipe(name)
+
+    def _toggle(self, step_id: str, on: bool) -> None:
+        step = STEPS[step_id]
+        field = step.prob_field or step.strength_field
+        spin = self.inputs[field]
+        if on and spin.value() == 0:
+            spin.setValue(self._remembered.get(field, DEFAULT_ON.get(field, 0.5)))
+            if step.kind == "intensity" and self.inputs[INTENSITY_GROUP_FIELD].value() == 0:
+                self.inputs[INTENSITY_GROUP_FIELD].setValue(0.8)
+            if step_id == "rotate" and self.inputs["rotate_max_deg"].value() == 0:
+                self.inputs["rotate_max_deg"].setValue(15)
+        elif not on and spin.value() > 0:
+            self._remembered[field] = spin.value()
+            spin.setValue(0)
+
+    def _changed(self, *_args) -> None:
+        self._sync_cards()
+        self.schedule()
+
+    def _sync_cards(self) -> None:
+        try:
+            cfg = self.config()
+        except AugmentConfigError:
+            return
+        for step in PIPELINE:
+            card = self.cards[step.id]
+            rate = expected_rate(cfg, step)
+            card.set_rate(rate)
+            if step.kind != "crop":
+                card.enable.blockSignals(True)
+                card.enable.setChecked(rate > 0)
+                card.enable.blockSignals(False)
+        for name, (check, prob) in self.extra.items():
+            self.cards[f"extra:{name}"].set_rate(prob.value() if check.isChecked() else 0.0)
+        self.group_dots.set_fraction(cfg.photometric_prob)
+        current = matching_preset(cfg)
+        for name, b in self.preset_buttons.items():
+            b.setChecked(name == current)
+        if current is None:
+            self.preset_group.setExclusive(False)
+            for b in self.preset_buttons.values():
+                b.setChecked(False)
+            self.preset_group.setExclusive(True)
+
+    def schedule(self) -> None:
+        if self.dataset.count():
+            self.refresh_timer.start()
+
+    # ---- previews -------------------------------------------------------------------------------------------
     def preview(self) -> None:
         version = self._version()
         if version is None or self.sample.currentData() is None:
@@ -188,28 +477,186 @@ class AugmentPage(QWidget):
             return
         try:
             cfg = self.config()
-            prep = self.preprocess()
+            self.preprocess()
+            image, labels, version, note = self._model_scale_sample()
         except (AugmentConfigError, PreprocessError) as exc:
             self.ctx.error(self, "Augmentation settings", str(exc))
             return
-        sample = next(s for s in version.samples() if s["stem"] == self.sample.currentData())
-        image = to_unit_float(load_image(version.image_path(sample)).array)
-        labels = version.class_map.channel_lut()[load_mask_values(version.mask_path(sample))]
-        try:
-            image, labels = prep.crop(image), prep.crop(labels)
-        except PreprocessError as exc:
-            self.ctx.error(self, "Exclude border", str(exc))
+        self.class_map = version.class_map
+        self._patches = []
+        for i in range(GALLERY):
+            trace: list = []
+            img, lab, _ = augment(image, labels, cfg, np.random.default_rng([self.seed, i]), trace=trace)
+            self._patches.append((img, lab, trace))
+        self._redraw_tiles()
+        self._update_thumbnails(image, labels, cfg)
+        self.captions.setText(note + f"Each patch is {cfg.patch_size}x{cfg.patch_size} px. Grey hatching = pixels "
+                              "from outside the image, ignored in training.")
+        self.show_steps(self.tile_index)
+        self.select_step(self.selected_step)
+
+    def _render(self, img: np.ndarray, lab: np.ndarray, with_mask: bool | None = None) -> np.ndarray:
+        show = self.show_mask.isChecked() if with_mask is None else with_mask
+        return overlay(img, lab, self.class_map, alpha=self.opacity.value() / 100) if show else to_display_rgb(img)
+
+    def _redraw_tiles(self) -> None:
+        for t, (img, lab, _trace) in zip(self.tiles, self._patches):
+            t.set_array(self._render(img, lab))
+
+    def _new_examples(self) -> None:
+        self.seed += 1
+        self.preview()
+
+    def _region(self, image: np.ndarray, labels: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+        h, w = labels.shape
+        s = min(160, h, w)
+        y, x = (h - s) // 2, (w - s) // 2
+        return image[y:y + s, x:x + s], labels[y:y + s, x:x + s]
+
+    def _update_thumbnails(self, image: np.ndarray, labels: np.ndarray, cfg: AugmentConfig) -> None:
+        img, lab = self._region(image, labels)
+        for step_id, card in self.cards.items():
+            a, b, ca, cb = self._step_pair(step_id, img, lab, cfg, image, labels)
+            card.thumb_a.set_array(a)
+            card.thumb_b.set_array(b)
+            card.cap_a.setText(ca)
+            card.cap_b.setText(cb)
+
+    def _step_pair(self, step_id: str, img: np.ndarray, lab: np.ndarray, cfg: AugmentConfig,
+                   full_img: np.ndarray, full_lab: np.ndarray) -> tuple[np.ndarray, np.ndarray, str, str]:
+        geo = step_id in ("rotate", "hflip", "vflip", "rot90", "crop")
+        if step_id == "crop":
+            p = min(cfg.patch_size, *full_lab.shape)
+            view = self._render(full_img, full_lab, True).copy()
+            view[:2, :p] = view[p - 2:p, :p] = (42, 120, 214)
+            view[:p, :2] = view[:p, p - 2:p] = (42, 120, 214)
+            return thumbnail(view, 256), self._render(*preview_crop(full_img, full_lab, p), True), \
+                f"{full_lab.shape[1]}x{full_lab.shape[0]} image", f"{cfg.patch_size} px patch"
+        if step_id.startswith("extra:"):
+            a, _ = preview_step(img, lab, step_id, 0, -1)
+            b, _ = preview_step(img, lab, step_id, 0, +1)
+            return to_display_rgb(a), to_display_rgb(b), "original", "applied"
+        step = STEPS[step_id]
+        value = getattr(cfg, step.strength_field) if step.strength_field else 0.0
+        if step_id == "rotate":
+            value = cfg.rotate_max_deg
+        a, la = preview_step(img, lab, step_id, value, -1, seed=1)
+        b, lb = preview_step(img, lab, step_id, value, +1, seed=1)
+        caps = {"rotate": (f"-{value:.0f} deg", f"+{value:.0f} deg"), "hflip": ("before", "mirrored"),
+                "vflip": ("before", "mirrored"), "rot90": ("90 deg", "270 deg"),
+                "contrast": ("lowest", "highest"), "brightness": ("darkest", "lightest"),
+                "gamma": ("lowest", "highest"), "noise_std": ("none", "strongest"),
+                "blur_max_sigma": ("sharp", "strongest")}[step_id]
+        if step_id in ("hflip", "vflip"):
+            a, la = img, lab
+        return self._render(a, la, geo), self._render(b, lb, geo), caps[0], caps[1]
+
+    def select_step(self, step_id: str) -> None:
+        self.selected_step = step_id
+        for sid, card in self.cards.items():
+            card.set_selected(sid == step_id)
+        if not self._patches or self._sample_cache is None:
             return
-        original = labels.shape
-        shape = prep.scaled_shape(*original)
-        image, labels = resize_image(image, shape), resize_labels(labels, shape)
-        grid, captions = augmentation_preview(image, labels, version.class_map, cfg, seed=self.seed.value())
-        self.view.set_array(grid)
-        size_note = (f"Resized from {original[0]}x{original[1]} to {shape[0]}x{shape[1]} px. "
-                     if shape != original else "")
-        if any(prep.exclude_border):
-            size_note = f"Border excluded; analysed region {original[0]}x{original[1]} px. " + size_note
-        norm_note = ("Shown before standardization (standardized values are not displayable). "
-                     if prep.normalization != "dtype_range" else "")
-        self.captions.setText(size_note + norm_note + "Columns: " + " | ".join(f"{i}: {', '.join(c)}" for i, c in enumerate(captions)) +
-                              f".  Training additionally crops random {cfg.patch_size}x{cfg.patch_size} patches.")
+        image, labels, _v, _n = self._sample_cache[1]
+        cfg = self.config()
+        img, lab = self._region(image, labels)
+        a, b, ca, cb = self._step_pair(step_id, img, lab, cfg, image, labels)
+        from ..core.render import tile_grid
+
+        geo = step_id in ("rotate", "hflip", "vflip", "rot90", "crop")
+        before = self._render(img, lab, geo)
+        tiles = [before, a, b] if step_id != "crop" else [a, b]
+        h = max(t.shape[0] for t in tiles)
+        tiles = [np.pad(t, ((0, h - t.shape[0]), (0, 0), (0, 0)), constant_values=255) for t in tiles]
+        self.detail_view.set_array(tile_grid(tiles, columns=len(tiles)))
+        if step_id.startswith("extra:"):
+            name = step_id[6:]
+            title, text = name, PHOTOMETRIC_OPS[name]["description"]
+        else:
+            title, text = STEPS[step_id].title, STEPS[step_id].help
+        order = "original | " + f"{ca} | {cb}" if step_id != "crop" else f"{ca} | {cb}"
+        self.detail_title.setText(f"<b>{title}</b> - {text}<br><span style='color:#6b6b6b'>Shown: {order}</span>")
+
+    def show_steps(self, index: int) -> None:
+        self.tile_index = index
+        while self.steps_layout.count():
+            item = self.steps_layout.takeAt(0)
+            w = item.widget()
+            if w is not None:
+                w.hide()  # deleteLater is deferred; hide now so old tiles never overlap new ones
+                w.deleteLater()
+        if not self._patches:
+            return
+        trace = self._patches[index][2]
+        for k, (step, text, img, lab) in enumerate(trace):
+            if k:
+                self.steps_layout.addWidget(Arrow())
+            col = QVBoxLayout()
+            tile = ClickableImage(120)
+            tile.set_array(self._render(thumbnail_pair(img), thumbnail_labels(lab, img), True))
+            col.addWidget(tile)
+            col.addWidget(rect_tile_caption("input image" if step == "input" else text))
+            w = QWidget()
+            w.setLayout(col)
+            self.steps_layout.addWidget(w)
+        self.steps_layout.addStretch(1)
+        self.steps_note.setText(f"Patch {index + 1}: every step that was applied, in order. Steps not shown were "
+                                "skipped for this patch (by chance, according to their probability).")
+
+    # ---- sanity check ---------------------------------------------------------------------------------------
+    def run_check(self) -> None:
+        version = self._version()
+        if version is None:
+            self.ctx.error(self, "Check settings", "Create a dataset version in step 1 first.")
+            return
+        try:
+            cfg, prep = self.config(), self.preprocess()
+        except (AugmentConfigError, PreprocessError) as exc:
+            self.ctx.error(self, "Check settings", str(exc))
+            return
+        self.checking = True
+        self.check_btn.setEnabled(False)
+        self.findings.setText("Checking...")
+
+        def work() -> dict:
+            from ..training.data import SplitSource
+
+            source = SplitSource(version, "train", prep, max_cached=0)
+            samples = [(s.image, s.labels) for s in (source.get(i) for i in range(min(8, len(source))))]
+            return sanity_check(samples, cfg, version.class_map.names, n=200)
+
+        def done(report: dict) -> None:
+            self.checking = False
+            self.check_btn.setEnabled(True)
+            self.last_check = report
+            icons = {"ok": ("&#10003;", "#1a7f37"), "warn": ("&#9888;", "#8a5a00"), "info": ("&#8505;", "#1f5fae")}
+            self.findings.setText("<br>".join(f"<span style='color:{icons[level][1]}'>{icons[level][0]}</span> {msg}"
+                                              for level, msg in report["findings"]))
+            self.rates.setRowCount(len(report["rates"]))
+            for r, row in enumerate(report["rates"]):
+                for c, v in enumerate([row["title"], f"{100 * row['expected']:.0f} %", f"{100 * row['observed']:.0f} %"]):
+                    self.rates.setItem(r, c, QTableWidgetItem(v))
+            self.rates.resizeColumnsToContents()
+
+        def failed(message: str, details: str) -> None:
+            self.checking = False
+            self.check_btn.setEnabled(True)
+            self.ctx.error(self, "Check settings", message, details)
+
+        run_background(work, done, failed)
+
+
+def preview_crop(image: np.ndarray, labels: np.ndarray, p: int) -> tuple[np.ndarray, np.ndarray]:
+    return image[:p, :p], labels[:p, :p]
+
+
+def thumbnail_pair(img: np.ndarray, max_side: int = 240) -> np.ndarray:
+    h, w = img.shape[:2]
+    step = max(1, int(np.ceil(max(h, w) / max_side)))
+    return img[::step, ::step]
+
+
+def thumbnail_labels(lab: np.ndarray, img: np.ndarray, max_side: int = 240) -> np.ndarray:
+    h, w = img.shape[:2]
+    step = max(1, int(np.ceil(max(h, w) / max_side)))
+    return lab[::step, ::step]

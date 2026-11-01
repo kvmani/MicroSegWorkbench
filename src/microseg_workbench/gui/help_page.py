@@ -13,7 +13,7 @@ Work through the steps on the left in order. Every step can also be run from the
 <ol>
 <li><b>1 Data</b>: press <i>Create demo data</i>. Synthetic micrographs (not real data) are written and checked.</li>
 <li>Press <i>Create dataset version</i>.</li>
-<li><b>2 Preprocess</b>: press <i>Preview</i> to see random flips, rotations and brightness changes.</li>
+<li><b>2 Preprocess</b>: pick <i>Standard</i> and look at the training patches at the bottom.</li>
 <li><b>3 Training</b>: keep the <i>Quick CPU</i> preset and press <i>Start training</i>.</li>
 <li><b>4 Results</b>: inspect test-set metrics and overlays.</li>
 </ol>
@@ -70,10 +70,29 @@ predictions are always mapped back to the original resolution and compared with 
 else: it is never trained on or scored, and predicted masks then cover only the analysed region (its position is
 recorded in <code>predictions.json</code>).</p>
 
+<h3>The augmentation pipeline (step 2)</h3>
+<p>Augmentation shows the model many slightly different versions of each training image, so it learns the features
+rather than one specimen's look. Step 2 draws the pipeline as blocks in the order they run, top row first:</p>
+<ul>
+<li><b>Blue blocks</b> (geometry) move image and mask together - the coloured mask always stays on the features.</li>
+<li><b>Orange blocks</b> (intensity) change only the image; they run as one group with a shared <i>Apply intensity
+changes to</i> setting.</li>
+<li>Each block shows its weakest and strongest effect on your own image. <i>How often</i> is the chance it is used on
+a patch (the dots show it out of 10); <i>How strong</i> is the largest change.</li>
+<li><b>Start from</b> None, Gentle, Standard or Strong, then adjust. <b>My settings</b> saves and loads your own
+combinations in this workspace.</li>
+<li><b>Training patches</b> shows 12 random patches exactly as the model will see them; click one and open
+<b>Step by step</b> to follow it through each block. <b>Selected block</b> shows one block's effect larger.</li>
+<li><b>Check settings</b> runs the real pipeline on 200 patches and warns if brightness/contrast clip pixels to pure
+black or white, if too many pixels come from outside the image, if blur is wider than your thinnest features, or if
+blocks fire more or less often than set.</li>
+</ul>
+<p>The order of blocks is fixed on purpose: geometry first, then intensity, so masks stay aligned.</p>
+
 <h3>Extra augmentations</h3>
-<p>Step 2 also offers a random blur. Your developers can add more image-only operations as plugins (see
-<code>examples/plugins/example_ops.py</code>); they then appear as <i>Plugin operation</i> tick boxes. Plugins never
-change masks, and every run records which plugin files it used.</p>
+<p>Your developers can add more image-only operations as plugins (see <code>examples/plugins/example_ops.py</code>);
+they then appear as extra orange blocks at the end of the pipeline. Plugins never change masks, and every run records
+which plugin files it used.</p>
 
 <h3>GPU training</h3>
 <ul>

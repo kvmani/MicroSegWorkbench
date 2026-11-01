@@ -1,6 +1,10 @@
 # Changelog
 
 ## Unreleased (0.4.0)
+- Visual augmentation pipeline builder (step 2): blocks in execution order with on/off, probability dots, strength
+  sliders and weakest/strongest thumbnails on the user's image; presets (None/Gentle/Standard/Strong); saved recipes;
+  live gallery of real training patches with mask overlay; step-by-step strip; selected-block view; settings check
+  (clipping, ignored pixels, blur vs feature width, fire rates).
 - Review fixes (RV-20261101-001..008): manifest edits detected and runs bound to their dataset manifest; sources
   re-checked at dataset creation; approval provenance in dataset ids; unsafe import/share paths rejected; fail-closed
   publishing on file systems without hard links; damaged stored blobs refused at publication; prediction refuses

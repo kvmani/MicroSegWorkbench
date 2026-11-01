@@ -196,3 +196,15 @@ Example: `examples/plugins/example_ops.py`.
 - Records on file systems without hard links fail closed (`UnsafeFilesystemError`); publishing is supported from
   Windows workstations. Blob reuse during publication re-verifies; damaged shared blobs are reported, never modified.
 - Staging folders carry an owner file; cleanup removes only abandoned ones.
+
+## Decisions (beginner workflow UI, 2026-11-01)
+
+### AD-19 Visual augmentation pipeline builder
+`core/augment_pipeline.PIPELINE` describes the steps in the exact order `augment()` applies them (geometry, then the
+intensity group, then plugins); the builder draws it, so the display cannot diverge from training. Previews come from
+the real `augment()` via an optional `trace` that records each applied stage without touching the random stream
+(tested byte-identical). Single-step thumbnails use `preview_step`. The order is fixed (owner decision): geometry
+before intensity keeps masks aligned. `sanity_check` runs the real pipeline on 200 patches and reports clipping
+(values outside [0, 1] before the final clip, valid pixels only), ignored pixels, patch larger than images, blur
+FWHM vs. the thinnest class width (2 x area / boundary length) and fire rates vs. settings. Named recipes are JSON files
+in `<workspace>/recipes`. Exact-value boxes remain the source of truth behind the sliders (Advanced mode shows them).

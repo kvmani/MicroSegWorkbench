@@ -146,13 +146,19 @@ def random_crop(image: np.ndarray, labels: np.ndarray, size: int, rng: np.random
 
 
 def augment(image: np.ndarray, labels: np.ndarray, cfg: AugmentConfig, rng: np.random.Generator, *,
-            crop: bool = True, image_resample: int = Image.Resampling.BILINEAR
-            ) -> tuple[np.ndarray, np.ndarray, list[str]]:
+            crop: bool = True, image_resample: int = Image.Resampling.BILINEAR,
+            trace: list | None = None) -> tuple[np.ndarray, np.ndarray, list[str]]:
     """Augment a float32 ``(H, W, C)`` image in [0, 1] and uint8 ``(H, W)`` labels.
 
     Returns the new image, labels and a human-readable list of applied operations.
     ``image_resample`` exists so tests can verify alignment with nearest sampling.
+    ``trace`` (a list) receives ``(step_id, description, image, labels)`` for the input and after every applied
+    step - used by the visual pipeline builder. It never changes the random stream or the result.
     """
+
+    def record(step: str, text: str) -> None:
+        if trace is not None:
+            trace.append((step, text, np.array(image, dtype=np.float32), np.array(labels)))
     if image.shape[:2] != labels.shape:
         raise ValueError(f"Image {image.shape[:2]} and labels {labels.shape} are not aligned.")
     ops: list[str] = []
@@ -162,6 +168,7 @@ def augment(image: np.ndarray, labels: np.ndarray, cfg: AugmentConfig, rng: np.r
     angle = float(rng.uniform(-cfg.rotate_max_deg, cfg.rotate_max_deg))
     b, c, g = rng.uniform(-1.0, 1.0, size=3)
     noise_seed = int(rng.integers(0, 2**31 - 1))
+    record("input", "input")
 
     rotate = bool(cfg.rotate_prob) and u[3] < cfg.rotate_prob and angle != 0.0
     if rotate and crop:
@@ -175,40 +182,51 @@ def augment(image: np.ndarray, labels: np.ndarray, cfg: AugmentConfig, rng: np.r
         o = (window - p) // 2
         image, labels = image[o:o + p, o:o + p], labels[o:o + p, o:o + p]
         ops.append(f"rotate {angle:+.1f} deg")
+        record("rotate", f"rotate {angle:+.1f} deg + crop {p} px")
     elif rotate:
         image, labels = _rotate(image, labels, angle, image_resample)
         ops.append(f"rotate {angle:+.1f} deg")
+        record("rotate", f"rotate {angle:+.1f} deg")
     elif crop:
         image, labels = random_crop(image, labels, cfg.patch_size, rng)
+        record("crop", f"crop {cfg.patch_size} px")
     if u[0] < cfg.hflip:
         image, labels = image[:, ::-1], labels[:, ::-1]
         ops.append("flip left-right")
+        record("hflip", "flip left-right")
     if u[1] < cfg.vflip:
         image, labels = image[::-1], labels[::-1]
         ops.append("flip up-down")
+        record("vflip", "flip up-down")
     if u[2] < cfg.rot90:
         image, labels = np.rot90(image, k, axes=(0, 1)), np.rot90(labels, k, axes=(0, 1))
         ops.append(f"rotate {90 * k} deg")
+        record("rot90", f"rotate {90 * k} deg")
     if u[4] < cfg.photometric_prob:
         if cfg.contrast:
             factor = 1.0 + c * cfg.contrast
             mean = float(image.mean())
             image = (image - mean) * factor + mean
             ops.append(f"contrast x{factor:.2f}")
+            record("contrast", ops[-1])
         if cfg.brightness:
             image = image + b * cfg.brightness
             ops.append(f"brightness {b * cfg.brightness:+.3f}")
+            record("brightness", ops[-1])
         if cfg.gamma:
             gamma = float(np.exp(g * cfg.gamma))
             image = np.clip(image, 0.0, 1.0) ** gamma
             ops.append(f"gamma {gamma:.2f}")
+            record("gamma", ops[-1])
         if cfg.noise_std:
             image = image + np.random.default_rng(noise_seed).normal(0, cfg.noise_std, image.shape)
             ops.append(f"noise sd {cfg.noise_std:.3f}")
+            record("noise_std", ops[-1])
         if cfg.blur_max_sigma:
             sigma = float(np.random.default_rng([noise_seed, 1]).uniform(0, cfg.blur_max_sigma))
             image = gaussian_blur(image, sigma)
             ops.append(f"blur sigma {sigma:.2f}")
+            record("blur_max_sigma", ops[-1])
         image = np.clip(image, 0.0, 1.0)
     for k, op in enumerate(cfg.extra_ops):  # extra draws only when extra ops are configured
         op_rng = np.random.default_rng([noise_seed, 100 + k])
@@ -220,4 +238,5 @@ def augment(image: np.ndarray, labels: np.ndarray, cfg: AugmentConfig, rng: np.r
                 raise AugmentConfigError(f"Augmentation {op['name']} changed the image shape.")
             image = np.clip(np.asarray(out, dtype=np.float32), 0.0, 1.0)
             ops.append(op["name"])
+            record(f"extra:{op['name']}", op["name"])
     return np.ascontiguousarray(image, dtype=np.float32), np.ascontiguousarray(labels), ops

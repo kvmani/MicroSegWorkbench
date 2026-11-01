@@ -37,6 +37,13 @@ SMB share, Ubuntu VM), an independent review (REVIEW.md), and a few deliberately
   `MSW_TEST_SHARE` pointing to a local folder 14 passed. CI run 41272689693 (commit 3752740, includes 7d12cca) green
   on Windows (incl. SMB-share tests and offline installer) and Linux.
 
+## Beginner workflow UI — 2026-11-01 (owner-approved plan, 5 parts)
+Plan approved by the project owner: (1) visual augmentation pipeline builder, (2) guided workflow frame with step
+status, Next buttons, Beginner/Advanced mode (Beginner default), ready-to-train checklist, (3) visual preprocessing,
+(4) visual data step, (5) workflow map and training summary card. Fixed operation order (owner decision).
+- Part 1 done: pipeline builder (AD-19). Tests: `tests/test_augment_pipeline.py` (trace byte-identical, order,
+  previews, presets, sanity findings, recipes) and `test_visual_augmentation_builder`; full suite 160 passed, 5 skipped.
+
 ## Current objective
 Hand over for office rehearsal and independent review. Implementation agents should next address review findings
 and the highest-value remaining gaps (multi-process augmentation, CUDA package, service authentication).

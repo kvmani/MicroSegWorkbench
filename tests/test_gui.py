@@ -51,7 +51,7 @@ def test_full_workflow(app, tmp_path):
     aug = win.augment_page
     assert aug.dataset.currentData() == data.last_version_id
     aug.preview()
-    assert aug.view.has_image() and "Columns" in aug.captions.text()
+    assert all(t.has_image for t in aug.tiles) and "patch" in aug.captions.text()
     aug.inputs["patch_size"].setValue(24)
     assert aug.config().patch_size == 24
     aug.inputs["patch_size"].setValue(64)
@@ -362,3 +362,56 @@ def test_plugin_operation_appears_in_augmentation_page(app, tmp_path):
         win.close()
     finally:
         PHOTOMETRIC_OPS.pop("sharpen_test", None)
+
+
+def test_visual_augmentation_builder(app, tmp_path):
+    from microseg_workbench.core.dataset import create_dataset_version, validate_folder
+    from microseg_workbench.core.splits import DEFAULT_GROUP_REGEX, SplitConfig
+    from microseg_workbench.core.synthetic import SyntheticSpec, write_synthetic_dataset
+    from microseg_workbench.gui.app import MainWindow
+
+    write_synthetic_dataset(tmp_path / "data", SyntheticSpec(specimens=3, images_per_specimen=2, size=96))
+    ws = Workspace(tmp_path / "ws").ensure()
+    create_dataset_version(validate_folder(tmp_path / "data", DEFAULT_GROUP_REGEX), SplitConfig(),
+                           ws.datasets_dir, "d")
+    win = MainWindow(ws, interactive=False)
+    aug = win.augment_page
+    aug.preview()
+    assert all(t.has_image for t in aug.tiles)
+    assert all(c.thumb_a.has_image and c.thumb_b.has_image for c in aug.cards.values())
+    # presets drive the blocks; the matching preset button is highlighted
+    aug.use_preset("gentle")
+    assert aug.config().rot90 == 0 and not aug.cards["rot90"].enable.isChecked()
+    assert aug.preset_buttons["gentle"].isChecked()
+    # switching a block on restores a sensible value; off sets it to zero; the dots follow
+    aug.cards["rot90"].enable.setChecked(True)
+    assert aug.config().rot90 == 0.5 and aug.cards["rot90"].dots.fraction == 0.5
+    assert not aug.preset_buttons["gentle"].isChecked()  # no longer a preset
+    aug.cards["blur_max_sigma"].enable.setChecked(True)
+    assert aug.config().blur_max_sigma == 1.0
+    aug.cards["blur_max_sigma"].enable.setChecked(False)
+    assert aug.config().blur_max_sigma == 0
+    # sliders and exact values stay in sync; advanced mode shows the exact boxes
+    aug.sliders["hflip"].slider.setValue(aug.sliders["hflip"].steps)
+    assert aug.config().hflip == 1.0 and "100 %" in aug.sliders["hflip"].value_label.text()
+    assert not aug.inputs["hflip"].isVisibleTo(aug)
+    aug.set_advanced(True)
+    assert aug.inputs["hflip"].isVisibleTo(aug)
+    # step-by-step follows one patch through the pipeline; selecting a block shows its effect
+    aug.preview()
+    aug.show_steps(2)
+    assert aug.steps_layout.count() >= 3
+    aug.select_step("brightness")
+    assert aug.detail_view.has_image() and "Brightness" in aug.detail_title.text()
+    # sanity check runs the real pipeline and reports
+    aug.run_check()
+    wait_until(app, lambda: not aug.checking)
+    assert aug.last_check and aug.rates.rowCount() >= len(aug.cards) - len(aug.extra)
+    # recipes
+    aug.save_recipe("mine")
+    aug.use_preset("none")
+    aug.load_recipe("mine")
+    assert aug.config().hflip == 1.0 and aug.recipes.currentText() == "mine"
+    # training picks the builder's settings up
+    assert win.train_page.build_config().augment.hflip == 1.0
+    win.close()
