@@ -34,7 +34,8 @@ SMB share, Ubuntu VM), an independent review (REVIEW.md), and a few deliberately
   version refuses if files changed since Check folder; datasets imported with provenance get new ids when approval
   state changes; prediction refuses same-name inputs; publishing from a Linux mount without hard links is refused.
 - Evidence: full suite **153 passed, 5 skipped** (Linux, Python 3.13, CPU); collaboration + SMB-path tests with
-  `MSW_TEST_SHARE` pointing to a local folder 14 passed. CI result recorded on the next push.
+  `MSW_TEST_SHARE` pointing to a local folder 14 passed. CI run 41272689693 (commit 3752740, includes 7d12cca) green
+  on Windows (incl. SMB-share tests and offline installer) and Linux.
 
 ## Current objective
 Hand over for office rehearsal and independent review. Implementation agents should next address review findings
