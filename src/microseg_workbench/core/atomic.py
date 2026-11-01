@@ -75,11 +75,19 @@ def read_json(path: Path) -> Any:
         return json.load(fh)
 
 
+OWNER_FILE = ".msw-owner.json"
+STALE_UNOWNED_S = 24 * 3600
+
+
 def staging_dir(parent: Path, name: str) -> Path:
-    """Create a private staging directory next to the final location."""
+    """Create a private staging directory next to the final location, recording which process owns it."""
+    import platform
+
     parent.mkdir(parents=True, exist_ok=True)
     path = parent / f".staging-{name}-{uuid.uuid4().hex[:8]}"
     path.mkdir()
+    (path / OWNER_FILE).write_text(json.dumps({"pid": os.getpid(), "host": platform.node(), "created": time.time()}),
+                                   encoding="utf-8")
     return path
 
 
@@ -93,6 +101,9 @@ def publish_dir(staging: Path, final: Path) -> bool:
     if final.exists():
         shutil.rmtree(staging, ignore_errors=True)
         return False
+    owner = staging / OWNER_FILE
+    if owner.exists():
+        owner.unlink()
     try:
         os.replace(staging, final)
     except OSError:
@@ -103,13 +114,46 @@ def publish_dir(staging: Path, final: Path) -> bool:
     return True
 
 
+def _staging_abandoned(path: Path) -> bool:
+    """True if the process that owns a staging folder is gone (or it is unowned and older than a day)."""
+    import platform
+
+    from .proc import pid_alive
+
+    try:
+        owner = json.loads((path / OWNER_FILE).read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        try:
+            return time.time() - path.stat().st_mtime > STALE_UNOWNED_S
+        except OSError:
+            return False
+    if owner.get("host") == platform.node():
+        return not pid_alive(int(owner.get("pid", 0)))
+    return time.time() - float(owner.get("created", 0)) > STALE_UNOWNED_S
+
+
 def remove_stale_staging(parent: Path) -> list[Path]:
-    """Delete leftovers of interrupted publications (recovery after a crash)."""
+    """Delete leftovers of interrupted preparations/downloads; never touches work of a running process."""
     removed: list[Path] = []
     if not parent.exists():
         return removed
     for child in parent.iterdir():
-        if child.is_dir() and child.name.startswith(".staging-"):
+        if child.is_dir() and child.name.startswith(".staging-") and _staging_abandoned(child):
             shutil.rmtree(child, ignore_errors=True)
             removed.append(child)
     return removed
+
+
+def safe_relpath(rel: str) -> str:
+    """Validate a relative path from a manifest or record before it is used to build a destination.
+
+    Rejects absolute paths, drive letters, backslashes, empty parts and '.'/'..' parts. Returns it unchanged.
+    """
+    from pathlib import PurePosixPath
+
+    if not isinstance(rel, str) or not rel or "\\" in rel or ":" in rel or "\x00" in rel:
+        raise ValueError(f"Unsafe file path {rel!r}")
+    parts = PurePosixPath(rel).parts
+    if PurePosixPath(rel).is_absolute() or any(p in ("", ".", "..") for p in parts) or rel != "/".join(parts):
+        raise ValueError(f"Unsafe file path {rel!r}")
+    return rel

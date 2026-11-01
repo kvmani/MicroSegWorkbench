@@ -23,26 +23,10 @@ from pathlib import Path
 from typing import Any
 
 from ..core.atomic import read_json, write_json_atomic
+from ..core.proc import pid_alive  # noqa: F401 - used here and re-exported
 
 TERMINAL_STATES = ("completed", "failed", "cancelled")
 ACTIVE_STATES = ("starting", "running", "evaluating")
-
-
-def pid_alive(pid: int) -> bool:
-    try:
-        import psutil
-
-        return psutil.pid_exists(pid)
-    except ImportError:
-        if os.name == "nt":
-            return True  # cannot tell without psutil; assume alive rather than mislabel
-        try:
-            os.kill(pid, 0)
-        except ProcessLookupError:
-            return False
-        except PermissionError:
-            return True
-        return True
 
 
 def utc_now() -> str:

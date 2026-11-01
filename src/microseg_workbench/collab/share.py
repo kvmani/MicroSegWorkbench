@@ -29,12 +29,14 @@ from pathlib import Path
 from typing import Any, Callable
 
 from .. import TOOL_ID, __version__
-from ..core.atomic import canonical_json, publish_dir, remove_stale_staging, staging_dir, write_json_atomic
+from ..core.atomic import (
+    canonical_json, publish_dir, remove_stale_staging, safe_relpath, staging_dir, write_json_atomic,
+)
 from ..core.dataset import MANIFEST_FILENAME, DatasetVersion
 from ..core.workspace import Workspace
 from ..training.runs import RunDir
-from .blobstore import BlobStore, sha256_of
-from .fsops import create_exclusive_json, read_json
+from .blobstore import BlobIntegrityError, BlobStore, sha256_of
+from .fsops import UnsafeFilesystemError, create_exclusive_json, read_json
 
 SHARE_SCHEMA = "microseg-workbench.share/1"
 DATASET_RECORD = "microseg-workbench.shared-dataset/1"
@@ -110,7 +112,7 @@ class SharedStore:
             if progress:
                 progress(f"Uploading {i}/{len(rels)}: {rel}")
             path = version.root / rel
-            files[rel] = self.blobs.put_file(path)
+            files[rel] = self._upload(path)
             total += path.stat().st_size
         record = {
             "schema": DATASET_RECORD,
@@ -163,6 +165,14 @@ class SharedStore:
         dataset_id = info["dataset"]["dataset_id"]
         if not self._dataset_record_path(dataset_id).exists():
             raise ShareError(f"Publish dataset version {dataset_id} first, so others can reproduce this run.")
+        local = run.root.parent.parent / "datasets" / dataset_id
+        if local.exists():
+            from ..training.trainer import check_dataset_unchanged
+
+            try:
+                check_dataset_unchanged(run, DatasetVersion.open(local))
+            except ValueError as exc:
+                raise ShareError(str(exc)) from exc
         rels = ["run.json", "status.json", "events.jsonl"]
         rels += sorted(p.relative_to(run.root).as_posix() for p in run.evaluation.rglob("*") if p.is_file())
         rels += sorted(p.relative_to(run.root).as_posix() for p in run.samples.rglob("*") if p.is_file())
@@ -174,7 +184,7 @@ class SharedStore:
                 raise ShareError(f"Run file {rel} is missing.")
             if progress:
                 progress(f"Uploading {i}/{len(rels)}: {rel}")
-            files[rel] = self.blobs.put_file(path)
+            files[rel] = self._upload(path)
         evaluation = json.loads((run.evaluation / "evaluation.json").read_text())
         metrics = evaluation.get("metrics") or {}
         record = {
@@ -240,7 +250,10 @@ class SharedStore:
                   "reviewer": reviewer, "reviewed_at": utc_now(),
                   "run_record_sha256": sha256_of(self._run_record_path(run_id))}
         name = f"{datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%S%fZ')}-{uuid.uuid4().hex[:8]}.json"
-        create_exclusive_json(self.root / "reviews" / _safe(run_id) / name, review)
+        try:
+            create_exclusive_json(self.root / "reviews" / _safe(run_id) / name, review)
+        except UnsafeFilesystemError as exc:
+            raise ShareError(str(exc)) from exc
         return review
 
     def reviews(self, run_id: str) -> list[dict[str, Any]]:
@@ -294,9 +307,19 @@ class SharedStore:
                         pass
         return candidates
 
-    # ---- helpers -------------------------------------------------------------------------------------------
+    # ---- helpers ---
+    def _upload(self, path: Path) -> str:
+        try:
+            return self.blobs.put_file(path, verify_existing=True)
+        except BlobIntegrityError as exc:
+            raise ShareError(str(exc)) from exc
+
     def _create_record(self, path: Path, record: dict[str, Any], identity_keys: tuple[str, ...]) -> dict[str, Any]:
-        if create_exclusive_json(path, record):
+        try:
+            created = create_exclusive_json(path, record)
+        except UnsafeFilesystemError as exc:
+            raise ShareError(str(exc)) from exc
+        if created:
             return record
         existing = read_json(path)
         if all(canonical_json(existing.get(k)) == canonical_json(record.get(k)) for k in identity_keys):
@@ -306,6 +329,14 @@ class SharedStore:
     def _materialize(self, files: dict[str, str], workspace: Workspace, parent: Path, name: str,
                      progress: Progress | None, extra_dirs: tuple[str, ...] = ()) -> None:
         cache = local_blob_cache(workspace)
+        _safe(name)
+        for rel in files:  # validate every destination before writing anything
+            try:
+                safe_relpath(rel)
+            except ValueError as exc:
+                raise ShareError(f"The shared record lists an unsafe file path: {exc}") from exc
+        if len({rel.lower() for rel in files}) != len(files):
+            raise ShareError("The shared record lists the same file twice.")
         remove_stale_staging(parent)
         stage = staging_dir(parent, name)
         try:
@@ -315,7 +346,13 @@ class SharedStore:
                 if progress:
                     progress(f"Downloading {i}/{len(files)}: {rel}")
                 cache.copy_from(self.blobs, digest)
-                cache.get_file(digest, stage / rel)
+                try:
+                    cache.get_file(digest, stage / rel)
+                except BlobIntegrityError:
+                    # Our own local cache copy went bad (disk problem): discard it and fetch it again once.
+                    cache.path(digest).unlink(missing_ok=True)
+                    cache.copy_from(self.blobs, digest)
+                    cache.get_file(digest, stage / rel)
             publish_dir(stage, parent / name)
         except BaseException:
             shutil.rmtree(stage, ignore_errors=True)

@@ -39,6 +39,13 @@ def predict_folder(run: RunDir, input_folder: Path, output_folder: Path, checkpo
                     if p.is_file() and p.suffix.lower() in IMAGE_EXTENSIONS and not p.stem.endswith(MASK_SUFFIX))
     if not images:
         raise PredictionError(f"No images found in {input_folder}.")
+    by_name: dict[str, list[str]] = {}
+    for p in images:
+        by_name.setdefault(p.stem.lower(), []).append(p.name)
+    clashes = sorted(", ".join(v) for v in by_name.values() if len(v) > 1)
+    if clashes:
+        raise PredictionError("Some images share a name and would overwrite each other's results: "
+                              + "; ".join(clashes[:5]) + ". Rename or move them, then try again.")
     torch_device, device_info, _ = choose_device(device)
     model, meta = load_checkpoint(ckpt_path, torch_device)
     class_map = ClassMap.from_dict(meta["class_map"])

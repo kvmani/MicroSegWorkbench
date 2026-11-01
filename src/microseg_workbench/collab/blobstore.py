@@ -72,7 +72,7 @@ class _HostLock:
                 time.sleep(0.05)
 
     def _stale(self) -> bool:
-        from ..training.runs import pid_alive
+        from ..core.proc import pid_alive
 
         try:
             pid = int(self.path.read_text() or "0")
@@ -103,10 +103,18 @@ class BlobStore:
         return self.has(digest) and sha256_of(self.path(digest)) == digest
 
     def put_file(self, src: Path, expected: str | None = None, progress: ProgressFn | None = None,
-                 fail_after: int | None = None) -> str:
-        """Store ``src``; returns its hash. ``expected`` (if known) skips hashing when the blob already exists."""
+                 fail_after: int | None = None, verify_existing: bool = False) -> str:
+        """Store ``src``; returns its hash.
+
+        ``verify_existing`` re-hashes an already stored copy before relying on it (used when publishing). A bad
+        existing copy is reported, not replaced: stored blobs are never modified by the app.
+        """
         digest = expected or sha256_of(src)
         if self.has(digest):
+            if verify_existing and not self.verify(digest):
+                raise BlobIntegrityError(
+                    f"The stored copy of {Path(src).name} ({digest[:12]}) in {self.root} is damaged. Nothing was "
+                    "published. Ask an administrator to run 'msw share check' and replace the damaged file.")
             return digest
         self._copy_in(src, digest, progress, fail_after)
         return digest
@@ -175,7 +183,7 @@ class BlobStore:
             final = self.path(digest)
             final.parent.mkdir(parents=True, exist_ok=True)
             try:
-                _rename_no_replace(part, final)
+                _rename_no_replace(part, final, identical_content=True)
             except FileExistsError:  # another computer published the same blob first: identical content
                 unlink_with_retry(part)
 

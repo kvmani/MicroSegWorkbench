@@ -146,6 +146,18 @@ def _resolve_batch_size(cfg: TrainConfig, model: UNet, device: torch.device, cha
     return found, attempts
 
 
+def check_dataset_unchanged(run: RunDir, version: DatasetVersion) -> None:
+    """Refuse to resume/evaluate/publish a run if its dataset version is not the one it was trained on."""
+    problems = version.verify()
+    if problems:
+        raise ValueError(f"Dataset {version.dataset_id} failed its integrity check: {problems[:3]}")
+    recorded = run.info().get("dataset", {}).get("manifest_sha256")
+    if recorded and sha256_file(version.root / MANIFEST_FILENAME) != recorded:
+        raise ValueError(f"Dataset {version.dataset_id} has changed since run {run.run_id} was trained on it "
+                         "(manifest differs); results would not be comparable. Restore the dataset version or "
+                         "train a new run.")
+
+
 def _check_memory(train: SplitSource, val: SplitSource | None, cfg: TrainConfig) -> None:
     """Refuse early, with advice, when keeping the data in memory would exhaust the computer's RAM."""
     need = train.estimated_bytes() + (val.estimated_bytes() if val is not None else 0)
@@ -250,6 +262,7 @@ def _execute(run: RunDir, cfg: TrainConfig, workspace: Workspace, on_event: Even
 
         info = run.info() if resume else {}
         if resume:
+            check_dataset_unchanged(run, version)
             batch_size = int(info["resolved"]["batch_size"])
             probe: list[dict] = []
         else:
@@ -437,6 +450,7 @@ def evaluate_run(run: RunDir, workspace: Workspace, device: torch.device | None 
     device = device or torch.device("cpu")
     model, ckpt = load_checkpoint(run.checkpoints / "best.pt", device)
     version = DatasetVersion.open(workspace.datasets_dir / ckpt["dataset_id"])
+    check_dataset_unchanged(run, version)
     class_map = version.class_map
     if class_map.to_dict() != ckpt["class_map"]:
         raise ValueError("Checkpoint class map differs from the dataset's; refusing to evaluate.")

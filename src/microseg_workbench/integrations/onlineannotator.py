@@ -159,6 +159,17 @@ def decode_oa_mask(data: bytes, style: str, target: int | None, colours: dict[in
     return out
 
 
+_BAD_STEM_CHARS = set('\\/:*?"<>|') | {chr(c) for c in range(32)}
+
+
+def safe_stem(stem: object) -> str:
+    """A stem is used as a file name: refuse separators, traversal and other unsafe characters."""
+    if not isinstance(stem, str) or not stem.strip() or stem in (".", "..") or stem.startswith(".") \
+            or any(ch in _BAD_STEM_CHARS for ch in stem) or stem != stem.strip():
+        raise OAImportError(f"Image name {stem!r} in the export cannot be used as a file name.")
+    return stem
+
+
 def import_bundle(source: Path, dest: Path, progress: Callable[[str], None] | None = None) -> ImportReport:
     """Convert an OnlineAnnotator export into a MicroSegWorkbench pair folder at ``dest`` (must not exist)."""
     dest = Path(dest)
@@ -185,8 +196,12 @@ def import_bundle(source: Path, dest: Path, progress: Callable[[str], None] | No
         records: dict[str, Any] = {}
         warnings: list[str] = []
         try:
+            seen: set[str] = set()
             for i, rec in enumerate(manifest.get("images", []), 1):
-                stem = rec["stem"]
+                stem = safe_stem(rec.get("stem"))
+                if stem.lower() in seen:
+                    raise OAImportError(f"Image name {stem!r} occurs twice in the export.")
+                seen.add(stem.lower())
                 if progress:
                     progress(f"Importing {i}/{len(manifest['images'])}: {stem}")
                 image_bytes, mask_bytes = src.read(rec["image_file"]), src.read(rec["mask_file"])
@@ -207,6 +222,8 @@ def import_bundle(source: Path, dest: Path, progress: Callable[[str], None] | No
                         raise OAImportError(f"{stem}: class {index} has {counts[index]} pixels but the manifest "
                                             f"records {n}; the export is inconsistent.")
                 ext = Path(rec["image_file"]).suffix.lower()
+                if ext not in (".png", ".jpg", ".jpeg", ".tif", ".tiff", ".bmp"):
+                    raise OAImportError(f"{rec['image_file']}: unsupported image type {ext!r}.")
                 write_bytes_atomic(stage / f"{stem}{ext}", image_bytes)
                 write_bytes_atomic(stage / f"{stem}{MASK_SUFFIX}.png", encode_png(labels))
                 records[stem] = {k: rec.get(k) for k in (

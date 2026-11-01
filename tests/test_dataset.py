@@ -75,7 +75,16 @@ def test_binary_encoding_maps_255_to_class_1_and_rejects_others(tmp_path):
 def test_dataset_version_is_immutable_content_addressed_and_leakage_free(synthetic_folder, tmp_path):
     report = validate_folder(synthetic_folder, DEFAULT_GROUP_REGEX)
     out = tmp_path / "datasets"
-    (out / ".staging-crashed-1234").mkdir(parents=True)  # leftover of an interrupted run
+    crashed = out / ".staging-crashed-1234"  # leftover of an interrupted run: its owner process is gone
+    crashed.mkdir(parents=True)
+    import json as _json
+    import platform
+    import subprocess
+    import sys
+
+    dead = subprocess.Popen([sys.executable, "-c", "pass"])
+    dead.wait()
+    (crashed / ".msw-owner.json").write_text(_json.dumps({"pid": dead.pid, "host": platform.node(), "created": 0}))
     v1 = create_dataset_version(report, SplitConfig(seed=1), out, "demo")
     assert not (out / ".staging-crashed-1234").exists()
     assert v1.verify() == []
@@ -110,8 +119,14 @@ def test_invalid_report_cannot_be_published(synthetic_folder, tmp_path):
 
 
 def test_remove_stale_staging_ignores_real_versions(tmp_path):
+    import os
+    import time
+
     (tmp_path / "keep").mkdir()
-    (tmp_path / ".staging-x").mkdir()
+    (tmp_path / ".staging-x").mkdir()  # unowned and fresh: could be in use by an older build - kept
+    assert remove_stale_staging(tmp_path) == []
+    old = time.time() - 2 * 86400
+    os.utime(tmp_path / ".staging-x", (old, old))
     removed = remove_stale_staging(tmp_path)
     assert [p.name for p in removed] == [".staging-x"]
     assert (tmp_path / "keep").exists()

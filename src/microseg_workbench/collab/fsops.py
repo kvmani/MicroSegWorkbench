@@ -39,7 +39,17 @@ def unlink_with_retry(path: Path) -> None:
             time.sleep(WINDOWS_RETRY_DELAY_S)
 
 
-def _rename_no_replace(src: Path, dst: Path) -> None:
+class UnsafeFilesystemError(OSError):
+    """The file system cannot create a file only-if-absent atomically."""
+
+
+def _rename_no_replace(src: Path, dst: Path, identical_content: bool = False) -> None:
+    """Move ``src`` to ``dst`` only if ``dst`` does not exist (FileExistsError otherwise).
+
+    ``identical_content`` (content-addressed blobs) allows a last-resort plain rename where no atomic primitive
+    exists, because replacing a blob with the same bytes changes nothing. Records never use it: on such file
+    systems publishing fails closed with UnsafeFilesystemError.
+    """
     if os.name == "nt":
         # Windows: os.rename fails if dst exists. On SMB shares a concurrent creator can make it fail with
         # "Access is denied" instead of FileExistsError; if dst now exists that is the same outcome.
@@ -63,10 +73,14 @@ def _rename_no_replace(src: Path, dst: Path) -> None:
     except OSError as exc:
         if exc.errno not in (errno.EPERM, errno.ENOTSUP, errno.EOPNOTSUPP, errno.EXDEV, errno.EACCES):
             raise
-        # File system without hard links (some SMB mounts): best effort check-then-rename.
         if dst.exists():
             raise FileExistsError(str(dst)) from exc
-        os.rename(src, dst)
+        if not identical_content:
+            raise UnsafeFilesystemError(
+                f"{Path(dst).parent} is on a file system without hard links (e.g. a Linux CIFS mount), so a "
+                "published record could be overwritten by a simultaneous publication. Publish from a Windows "
+                "workstation, or mount the share with hard-link support.") from exc
+        os.rename(src, dst)  # content-addressed: an overwrite would store identical bytes
         return
     os.unlink(src)
 

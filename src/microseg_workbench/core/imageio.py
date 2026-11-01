@@ -31,13 +31,17 @@ class LoadedImage:
         return int(self.array.shape[2])
 
 
-def _open(path: Path) -> Image.Image:
+def _label(path: "Path | io.BytesIO") -> str:
+    return getattr(path, "name", None) or "mask"
+
+
+def _open(path: "Path | io.BytesIO") -> Image.Image:
     try:
         img = Image.open(path)
         img.load()
         return img
     except Exception as exc:  # PIL raises many exception types
-        raise ImageReadError(f"Cannot read {path.name}: {exc}") from exc
+        raise ImageReadError(f"Cannot read {_label(path)}: {exc}") from exc
 
 
 def load_image(path: Path) -> LoadedImage:
@@ -77,7 +81,7 @@ def load_image(path: Path) -> LoadedImage:
     return LoadedImage(array=np.ascontiguousarray(arr), notes=tuple(notes))
 
 
-def load_mask_values(path: Path) -> np.ndarray:
+def load_mask_values(path: "Path | io.BytesIO") -> np.ndarray:
     """Raw 2-D mask pixel values (uint8). Rejects colour or palette-less ambiguity."""
     img = _open(path)
     if img.mode == "P":
@@ -90,7 +94,7 @@ def load_mask_values(path: Path) -> np.ndarray:
     elif img.mode in ("I;16", "I", "I;16B", "I;16L"):
         arr = np.asarray(img)
         if arr.max() > 255 or arr.min() < 0:
-            raise ImageReadError(f"Mask {path.name} has values above 255; only 8-bit class values are supported.")
+            raise ImageReadError(f"Mask {_label(path)} has values above 255; only 8-bit class values are supported.")
         arr = arr.astype(np.uint8)
     elif img.mode == "RGB":
         rgb = np.asarray(img)
@@ -98,11 +102,11 @@ def load_mask_values(path: Path) -> np.ndarray:
             arr = rgb[..., 0]
         else:
             raise ImageReadError(
-                f"Mask {path.name} is a colour (RGB) image. Export masks as indexed (pixel value = class) "
+                f"Mask {_label(path)} is a colour (RGB) image. Export masks as indexed (pixel value = class) "
                 "or binary 0/255 PNGs."
             )
     else:
-        raise ImageReadError(f"Mask {path.name} has unsupported mode {img.mode!r}.")
+        raise ImageReadError(f"Mask {_label(path)} has unsupported mode {img.mode!r}.")
     return np.ascontiguousarray(arr.astype(np.uint8))
 
 

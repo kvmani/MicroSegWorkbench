@@ -9,6 +9,7 @@ manifest recording every hash and decision.
 
 from __future__ import annotations
 
+import io
 import platform
 import shutil
 from collections import Counter
@@ -44,6 +45,10 @@ from .imageio import (
 from .splits import SplitConfig, SplitError, assign_splits, check_fixed_splits, derive_group
 
 MANIFEST_SCHEMA = "microseg-workbench.dataset/1"
+
+
+class SourceChangedError(ValueError):
+    """A source file changed between validation and dataset creation; message is safe to show to users."""
 MANIFEST_FILENAME = "manifest.json"
 
 
@@ -254,6 +259,32 @@ def plan_split(report: ValidationReport, config: SplitConfig) -> dict[str, str]:
     return {p.stem: by_group[p.group] for p in report.pairs if p.ok}
 
 
+def _annotation_identity(prov: dict[str, Any] | None, unapproved: bool) -> list[Any]:
+    prov = prov or {}
+    return [prov.get("version"), prov.get("version_status"), prov.get("approved_by"), unapproved]
+
+
+def content_identity(name: str, class_map: dict[str, Any], split_config: dict[str, Any],
+                     samples: list[dict[str, Any]], unapproved: set[str], with_provenance: bool) -> str:
+    """The dataset id: ``<name>-<12 hex>`` of the scientific content.
+
+    Covers class map, split settings, every sample's stem/group/split and file hashes and - when the data came with
+    annotation provenance - each mask's annotation version and approval state. Any change to these gives a new id,
+    and ``DatasetVersion.verify`` recomputes it to detect edits of ``manifest.json``.
+    """
+    split_identity = dict(split_config)
+    if split_identity.get("source", "group") == "group":
+        split_identity.pop("source", None)  # keeps ids of group-split versions identical to earlier releases
+    rows = []
+    for s in samples:
+        row = {k: s[k] for k in ("stem", "group", "split", "image_sha256", "stored_mask_sha256")}
+        if with_provenance:
+            row["annotation"] = _annotation_identity(s.get("annotation_provenance"), s["stem"] in unapproved)
+        rows.append(row)
+    content = {"class_map": class_map, "split_config": split_identity, "samples": rows}
+    return f"{name}-{sha256_bytes(canonical_json(content).encode())[:12]}"
+
+
 @dataclass(frozen=True)
 class DatasetVersion:
     """A published, immutable dataset version on disk."""
@@ -288,11 +319,37 @@ class DatasetVersion:
         return cls(root=Path(root), manifest=manifest)
 
     def verify(self) -> list[str]:
-        """Re-hash every file; returns a list of problems (empty when intact)."""
+        """Check that the manifest still matches its own id and that every file matches its hash.
+
+        Returns a list of problems (empty when intact). Detects edits of ``manifest.json`` (e.g. moving samples
+        between splits, changing classes or hashes) because the id is recomputed from the manifest content, and
+        checks that no group spans more than one split.
+        """
+        from .atomic import safe_relpath
+
+        m = self.manifest
         problems = []
+        try:
+            expected = content_identity(m["name"], m["class_map"], m["split_config"], m["samples"],
+                                        set(m.get("unapproved_stems", [])), bool(m.get("identity_includes_annotation")))
+        except (KeyError, TypeError) as exc:
+            return [f"manifest is incomplete ({exc})"]
+        if expected != self.dataset_id or self.root.name != self.dataset_id:
+            problems.append("manifest.json was modified after the dataset version was created (content no longer "
+                            "matches its id); recreate the dataset version from the source folder")
+        spans: dict[str, set[str]] = {}
+        for s in self.samples():
+            spans.setdefault(s["group"], set()).add(s["split"])
+        leaking = sorted(g for g, splits in spans.items() if len(splits) > 1)
+        if leaking:
+            problems.append(f"groups {leaking[:5]} appear in more than one split")
         for s in self.samples():
             for key, hkey in (("image_file", "image_sha256"), ("mask_file", "stored_mask_sha256")):
-                path = self.root / s[key]
+                try:
+                    path = self.root / safe_relpath(s[key])
+                except ValueError as exc:
+                    problems.append(str(exc))
+                    continue
                 if not path.exists():
                     problems.append(f"missing {s[key]}")
                 elif sha256_file(path) != s[hkey]:
@@ -326,10 +383,15 @@ def create_dataset_version(report: ValidationReport, split_config: SplitConfig, 
             ext = pair.image_path.suffix.lower()
             image_rel = f"images/{pair.stem}{ext}"
             mask_rel = f"masks/{pair.stem}{MASK_SUFFIX}.png"
+            changed = ("{} changed after the folder was checked. Press 'Check folder' again (or re-run "
+                       "'msw prepare') so the dataset is built from what was validated.")
             shutil.copyfile(pair.image_path, stage / image_rel)
             if sha256_file(stage / image_rel) != pair.image_sha256:
-                raise OSError(f"Image {pair.image_path} changed while preparing the dataset.")
-            labels = decode_mask(load_mask_values(pair.mask_path), class_map)
+                raise SourceChangedError(changed.format(pair.image_path.name))
+            mask_source = pair.mask_path.read_bytes()  # decode exactly the bytes whose hash was validated
+            if sha256_bytes(mask_source) != pair.mask_sha256:
+                raise SourceChangedError(changed.format(pair.mask_path.name))
+            labels = decode_mask(load_mask_values(io.BytesIO(mask_source)), class_map)
             mask_bytes = encode_png(labels)
             write_bytes_atomic(stage / mask_rel, mask_bytes)
             samples.append({
@@ -351,16 +413,10 @@ def create_dataset_version(report: ValidationReport, split_config: SplitConfig, 
                 "source_mask": str(pair.mask_path),
                 "annotation_provenance": ((report.provenance or {}).get("samples", {}).get(pair.stem)),
             })
-        split_identity = asdict(split_config)
-        if split_config.source == "group":
-            split_identity.pop("source")  # keeps ids of group-split versions identical to earlier releases
-        content = {
-            "class_map": class_map.to_dict(),
-            "split_config": split_identity,
-            "samples": [{k: s[k] for k in ("stem", "group", "split", "image_sha256", "stored_mask_sha256")}
-                        for s in samples],
-        }
-        dataset_id = f"{name}-{sha256_bytes(canonical_json(content).encode())[:12]}"
+        with_provenance = bool((report.provenance or {}).get("samples"))
+        unapproved = set((report.provenance or {}).get("unapproved", [])) & {s["stem"] for s in samples}
+        dataset_id = content_identity(name, class_map.to_dict(), asdict(split_config), samples, unapproved,
+                                      with_provenance)
         counts = Counter(s["split"] for s in samples)
         manifest = {
             "schema": MANIFEST_SCHEMA,
@@ -377,8 +433,9 @@ def create_dataset_version(report: ValidationReport, split_config: SplitConfig, 
                        sorted({s["group"] for s in samples})},
             "warnings": [asdict(i) for i in report.warnings],
             "annotation_source": (report.provenance or {}).get("source"),
-            "contains_unapproved_annotations": bool(set((report.provenance or {}).get("unapproved", []))
-                                                    & {s["stem"] for s in samples}),
+            "contains_unapproved_annotations": bool(unapproved),
+            "unapproved_stems": sorted(unapproved),
+            "identity_includes_annotation": with_provenance,
             "samples": samples,
         }
         write_json_atomic(stage / MANIFEST_FILENAME, manifest)
