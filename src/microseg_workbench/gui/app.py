@@ -91,6 +91,7 @@ class MainWindow(QMainWindow):
         self.beginner_btn.setToolTip("Presets and visual controls only.")
         self.advanced_btn.setToolTip("Show every option, with exact values.")
         (self.advanced_btn if self.ctx.advanced else self.beginner_btn).setChecked(True)
+        self.ctx.mode_changed.connect(lambda on: (self.advanced_btn if on else self.beginner_btn).setChecked(True))
         top = QHBoxLayout()
         top.addWidget(self.workspace_label, 1)
         top.addWidget(QLabel("Mode:"))

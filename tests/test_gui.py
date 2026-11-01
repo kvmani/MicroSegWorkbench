@@ -435,6 +435,10 @@ def test_guided_workflow_frame(app, tmp_path):
     assert not win.data_page.seed.isVisibleTo(win.data_page)
     win.advanced_btn.click()
     assert win.train_page.lr.isVisibleTo(win.train_page) and win.data_page.seed.isVisibleTo(win.data_page)
+    win.ctx.set_advanced(False)
+    assert win.beginner_btn.isChecked() and not win.advanced_btn.isChecked()
+    win.ctx.set_advanced(True)
+    assert win.advanced_btn.isChecked()
     assert win.augment_page.inputs["hflip"].isVisibleTo(win.augment_page)
     win.close()
     assert MainWindow(ws, interactive=False).ctx.advanced is True
