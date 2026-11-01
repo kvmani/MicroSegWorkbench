@@ -12,12 +12,33 @@ class AppContext(QObject):
     datasets_changed = Signal()
     runs_changed = Signal()
     status_message = Signal(str)
+    workflow_changed = Signal()  # something that affects step status (checks, settings) changed
+    mode_changed = Signal(bool)  # True = Advanced mode
 
     def __init__(self, workspace: Workspace, interactive: bool = True) -> None:
         super().__init__()
         self.workspace = workspace.ensure()
         self.interactive = interactive  # False in automated tests: no modal dialogs
         self.last_error: str | None = None
+        self.advanced = bool(self._ui_settings().get("advanced", False))  # Beginner mode by default
+
+    def _ui_settings(self) -> dict:
+        import json
+
+        try:
+            return json.loads((self.workspace.root / "ui.json").read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            return {}
+
+    def set_advanced(self, on: bool) -> None:
+        """Switch Beginner/Advanced mode (remembered in this workspace)."""
+        from ..core.atomic import write_json_atomic
+
+        self.advanced = on
+        data = self._ui_settings()
+        data["advanced"] = on
+        write_json_atomic(self.workspace.root / "ui.json", data)
+        self.mode_changed.emit(on)
 
     def set_workspace(self, workspace: Workspace) -> None:
         self.workspace = workspace.ensure()

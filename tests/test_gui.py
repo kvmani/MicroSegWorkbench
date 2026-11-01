@@ -415,3 +415,55 @@ def test_visual_augmentation_builder(app, tmp_path):
     # training picks the builder's settings up
     assert win.train_page.build_config().augment.hflip == 1.0
     win.close()
+
+
+def test_guided_workflow_frame(app, tmp_path):
+    from microseg_workbench.gui.app import MainWindow
+    from microseg_workbench.gui.workflow import ATTENTION, DONE, LOCKED, TODO
+
+    ws = Workspace(tmp_path / "ws")
+    win = MainWindow(ws, interactive=False)
+    win.refresh_status()
+    states = [s.state for s in win.statuses]
+    assert states[0] == TODO and states[1] == LOCKED and states[2] == LOCKED and states[3] == LOCKED
+    assert "Start here" in win.step_state.text() and "Next: Preprocess" in win.next_btn.text()
+    assert not win.train_page.start_btn.isEnabled() and "No dataset version" in win.train_page.ready.text()
+    # Beginner mode (default) hides expert options; Advanced shows them and is remembered per workspace
+    assert not win.train_page.lr.isVisibleTo(win.train_page) and win.train_page.epochs.isVisibleTo(win.train_page)
+    assert not win.data_page.seed.isVisibleTo(win.data_page)
+    win.advanced_btn.click()
+    assert win.train_page.lr.isVisibleTo(win.train_page) and win.data_page.seed.isVisibleTo(win.data_page)
+    assert win.augment_page.inputs["hflip"].isVisibleTo(win.augment_page)
+    win.close()
+    assert MainWindow(ws, interactive=False).ctx.advanced is True
+
+    win = MainWindow(ws, interactive=False)
+    data = win.data_page
+    data.create_demo_data()
+    wait_until(app, lambda: data.report is not None and not data.busy)
+    data.create_version()
+    wait_until(app, lambda: data.last_version_id is not None and not data.busy)
+    win.refresh_status()
+    states = [s.state for s in win.statuses]
+    assert states[0] == DONE and states[1] == TODO and states[2] == TODO
+    win.next_btn.click()
+    assert win.nav.currentRow() == 1
+    aug = win.augment_page
+    aug.use_preset("standard")
+    aug.run_check()
+    wait_until(app, lambda: not aug.checking)
+    win.refresh_status()
+    assert win.statuses[1].state == DONE
+    aug.cards["blur_max_sigma"].enable.setChecked(True)  # settings changed after the check
+    win.refresh_status()
+    assert win.statuses[1].state == TODO and "changed" in win.statuses[1].reason
+    aug.inputs["blur_max_sigma"].setValue(4.0)
+    aug.run_check()
+    wait_until(app, lambda: not aug.checking)
+    win.refresh_status()
+    assert win.statuses[1].state == ATTENTION
+    assert "to review in step 2" in win.train_page.ready.text() and win.train_page.start_btn.isEnabled()
+    aug.border[0].setValue(500)  # preprocessing that cannot work blocks the start button
+    win.refresh_status()
+    assert not win.train_page.start_btn.isEnabled() and "leaves only" in win.train_page.ready.text()
+    win.close()

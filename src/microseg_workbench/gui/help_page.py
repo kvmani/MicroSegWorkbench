@@ -9,6 +9,17 @@ GUIDE = """
 <p>The workbench takes you from annotated micrographs to a trained, evaluated segmentation model.
 Work through the steps on the left in order. Every step can also be run from the command line (<code>msw</code>).</p>
 
+<h3>Finding your way</h3>
+<ul>
+<li>The steps on the left show where you are: <b>&#10003;</b> done, <b>&#9888;</b> needs your attention, <b>&#8226;</b>
+to do, <b>&#9702;</b> optional, grey = not possible yet (hover for the reason).</li>
+<li>The bar at the bottom says <i>what to do here</i> and has <b>Next</b> and <b>Back</b> buttons.</li>
+<li><b>Beginner</b> mode (top right) shows presets and visual controls only. <b>Advanced</b> adds every option with
+exact values. The choice is remembered for this workspace.</li>
+<li>Before training, the <b>Ready to train?</b> list in step 3 checks the dataset, preprocessing, augmentation check
+and device. A red &#10007; must be fixed first; the others are advice.</li>
+</ul>
+
 <h3>Try it in two minutes</h3>
 <ol>
 <li><b>1 Data</b>: press <i>Create demo data</i>. Synthetic micrographs (not real data) are written and checked.</li>

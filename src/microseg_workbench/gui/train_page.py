@@ -13,7 +13,7 @@ import sys
 from pathlib import Path
 from typing import Any, Callable
 
-from PySide6.QtCore import QProcess, QProcessEnvironment, Qt, QTimer
+from PySide6.QtCore import QProcess, QProcessEnvironment, Qt, QTimer  # noqa: F401
 from PySide6.QtGui import QPixmap
 from PySide6.QtWidgets import (
     QComboBox, QDoubleSpinBox, QFormLayout, QGridLayout, QGroupBox, QHBoxLayout, QLabel, QProgressBar, QPushButton,
@@ -108,6 +108,7 @@ class TrainPage(QWidget):
         self.epochs_seen: list[int] = []
         self.final_state: str | None = None
         self.t0: float | None = None
+        self.device_info_changed = None
         self.series_remaining = 0
         self.series_runs: list[str] = []
 
@@ -184,10 +185,19 @@ class TrainPage(QWidget):
         form.addRow("Early stopping after:", self.patience)
         form.addRow("Images in memory:", self.in_memory)
         form.addRow(self.device_info)
+        self.ready = QLabel("")
+        self.ready.setWordWrap(True)
+        self.ready.setTextFormat(Qt.TextFormat.RichText)
+        self.ready.setStyleSheet("QLabel { background: #f6f6f4; border: 1px solid #d8d8d4; padding: 6px; }")
+        form.addRow(self.ready)
         buttons = QHBoxLayout()
         buttons.addWidget(self.start_btn)
         buttons.addWidget(self.cancel_btn)
         form.addRow(buttons)
+        self.form = form
+        self.blocking: list[str] = []
+        self.set_advanced(ctx.advanced)
+        ctx.mode_changed.connect(self.set_advanced)
 
         self.progress = QProgressBar()
         self.progress.setFormat("%p%")
@@ -267,6 +277,23 @@ class TrainPage(QWidget):
         self._detect_devices()
 
     # ----- setup -------------------------------------------------------------------------------------------
+    EXPERT_FIELDS = ("batch", "lr", "loss", "seed", "repeats", "precision", "patience", "in_memory")
+
+    def set_advanced(self, on: bool) -> None:
+        """Beginner mode shows dataset, preset, epochs and device only; Advanced shows every training option."""
+        for name in self.EXPERT_FIELDS:
+            self.form.setRowVisible(getattr(self, name), on)
+
+    def update_readiness(self, items: list[tuple[str, str]]) -> None:
+        """Show the 'Ready to train?' checklist; items are (state, text) with state ok/warn/todo/block."""
+        icons = {"ok": ("&#10003;", "#1a7f37"), "warn": ("&#9888;", "#9a5b00"), "todo": ("&#9675;", "#1f5fae"),
+                 "block": ("&#10007;", "#b42318")}
+        rows = [f"<span style='color:{icons[st][1]}'>{icons[st][0]}</span> {text}" for st, text in items]
+        self.ready.setText("<b>Ready to train?</b><br>" + "<br>".join(rows))
+        self.blocking = [text for st, text in items if st == "block"]
+        if not self.is_running():
+            self.start_btn.setEnabled(not self.blocking)
+
     def refresh(self) -> None:
         current = self.dataset.currentData()
         self.dataset.clear()
@@ -291,8 +318,13 @@ class TrainPage(QWidget):
             labels = [d.label() for d in detect_devices()]
             return "Found: " + "; ".join(labels) + ". " + choose_device("auto")[2] + " " + cuda_diagnosis()
 
-        run_background(detect, self.device_info.setText,
-                       lambda msg, _d: self.device_info.setText(f"Device detection failed: {msg}. CPU will be used."))
+        def show(text: str) -> None:
+            self.device_info.setText(text)
+            if self.device_info_changed:
+                self.device_info_changed()
+
+        run_background(detect, show,
+                       lambda msg, _d: show(f"Device detection failed: {msg}. CPU will be used."))
 
     def build_config(self):
         dataset_id = self.dataset.currentData()

@@ -208,3 +208,11 @@ before intensity keeps masks aligned. `sanity_check` runs the real pipeline on 2
 (values outside [0, 1] before the final clip, valid pixels only), ignored pixels, patch larger than images, blur
 FWHM vs. the thinnest class width (2 x area / boundary length) and fire rates vs. settings. Named recipes are JSON files
 in `<workspace>/recipes`. Exact-value boxes remain the source of truth behind the sliders (Advanced mode shows them).
+
+### AD-20 Guided workflow frame
+`gui/workflow.step_statuses` derives each step's state (done / attention / to do / locked / optional / running) and a
+reason from what exists on disk (dataset versions, runs) and in-session state (folder check, augmentation check and
+whether settings changed since). The main window shows it as icons, a footer with guidance and Back/Next, and the
+training page's "Ready to train?" checklist; only impossible preprocessing or a missing dataset block Start, the rest
+is advice. Beginner/Advanced mode is a workspace setting (`ui.json`, default Beginner) that hides expert form rows
+via `QFormLayout.setRowVisible`; hidden options keep their values and defaults.

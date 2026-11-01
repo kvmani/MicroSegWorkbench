@@ -111,6 +111,9 @@ class DataPage(QWidget):
         form.addRow(self.split_preview)
         form.addRow(self.create_btn)
         form.addRow(self.result)
+        self.form = form
+        self.set_advanced(ctx.advanced)
+        ctx.mode_changed.connect(self.set_advanced)
 
         left = QWidget()
         lv = QVBoxLayout(left)
@@ -133,6 +136,10 @@ class DataPage(QWidget):
         layout.addLayout(row1)
         layout.addLayout(row2)
         layout.addWidget(splitter, 1)
+
+    def set_advanced(self, on: bool) -> None:
+        """Beginner mode hides the split seed (the default is fine for almost everyone)."""
+        self.form.setRowVisible(self.seed, on)
 
     @staticmethod
     def _fraction(value: float) -> QDoubleSpinBox:
@@ -215,6 +222,7 @@ class DataPage(QWidget):
             self.report = report
             self._set_busy(False, report.summary())
             self._show_report()
+            self.ctx.workflow_changed.emit()
 
         run_background(lambda: validate_folder(folder, regex), done, self._failed("Check folder"))
 

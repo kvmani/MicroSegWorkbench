@@ -43,6 +43,8 @@ status, Next buttons, Beginner/Advanced mode (Beginner default), ready-to-train 
 (4) visual data step, (5) workflow map and training summary card. Fixed operation order (owner decision).
 - Part 1 done: pipeline builder (AD-19). Tests: `tests/test_augment_pipeline.py` (trace byte-identical, order,
   previews, presets, sanity findings, recipes) and `test_visual_augmentation_builder`; full suite 160 passed, 5 skipped.
+- Part 2 done: guided frame (AD-20). Test `test_guided_workflow_frame` (status progression, stale/warned checks,
+  mode persistence, hidden expert rows, blocking checklist).
 
 ## Current objective
 Hand over for office rehearsal and independent review. Implementation agents should next address review findings

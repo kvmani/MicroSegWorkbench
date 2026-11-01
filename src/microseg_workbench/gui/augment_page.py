@@ -64,6 +64,7 @@ class AugmentPage(QWidget):
         self.selected_step = "rotate"
         self.tile_index = 0
         self.last_check: dict | None = None
+        self._checked_settings: tuple | None = None
         self.checking = False
         self._remembered: dict[str, float] = dict(DEFAULT_ON)
         self.refresh_timer = QTimer(self)
@@ -251,6 +252,7 @@ class AugmentPage(QWidget):
 
         prep = QWidget()
         prep_form = QFormLayout(prep)
+        self.prep_form = prep_form
         self.resize_factor = QDoubleSpinBox()
         self.resize_factor.setRange(0.1, 4.0)
         self.resize_factor.setSingleStep(0.05)
@@ -294,16 +296,25 @@ class AugmentPage(QWidget):
         layout.addWidget(splitter, 1)
         ctx.datasets_changed.connect(self.refresh)
         self._sync_cards()
-        self.set_advanced(False)
+        self.set_advanced(ctx.advanced)
+        ctx.mode_changed.connect(self.set_advanced)
         self.refresh()
 
     def set_advanced(self, on: bool) -> None:
-        """Advanced mode shows exact-value boxes next to every slider."""
+        """Advanced mode shows exact-value boxes next to every slider and the normalization choice."""
         self.advanced = on
         for s in self.sliders.values():
             s.set_exact_visible(on)
         for name, (_check, prob) in self.extra.items():
             prob.setVisible(on)
+        self.prep_form.setRowVisible(self.normalization, on)
+
+    def check_is_stale(self) -> bool:
+        """True when the settings changed after the last check."""
+        try:
+            return self._checked_settings != (self.config(), self.preprocess())
+        except (AugmentConfigError, PreprocessError):
+            return True
 
     # ---- data -------------------------------------------------------------------------------------------------
     def refresh(self) -> None:
@@ -439,6 +450,7 @@ class AugmentPage(QWidget):
     def _changed(self, *_args) -> None:
         self._sync_cards()
         self.schedule()
+        self.ctx.workflow_changed.emit()
 
     def _sync_cards(self) -> None:
         try:
@@ -625,8 +637,11 @@ class AugmentPage(QWidget):
             samples = [(s.image, s.labels) for s in (source.get(i) for i in range(min(8, len(source))))]
             return sanity_check(samples, cfg, version.class_map.names, n=200)
 
+        checked = (cfg, prep)
+
         def done(report: dict) -> None:
             self.checking = False
+            self._checked_settings = checked
             self.check_btn.setEnabled(True)
             self.last_check = report
             icons = {"ok": ("&#10003;", "#1a7f37"), "warn": ("&#9888;", "#8a5a00"), "info": ("&#8505;", "#1f5fae")}
@@ -637,6 +652,7 @@ class AugmentPage(QWidget):
                 for c, v in enumerate([row["title"], f"{100 * row['expected']:.0f} %", f"{100 * row['observed']:.0f} %"]):
                     self.rates.setItem(r, c, QTableWidgetItem(v))
             self.rates.resizeColumnsToContents()
+            self.ctx.workflow_changed.emit()
 
         def failed(message: str, details: str) -> None:
             self.checking = False

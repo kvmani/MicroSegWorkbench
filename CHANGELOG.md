@@ -1,6 +1,8 @@
 # Changelog
 
 ## Unreleased (0.4.0)
+- Guided workflow: step status icons with reasons, footer with "what to do here" and Back/Next, Beginner/Advanced
+  mode (Beginner default, remembered per workspace), "Ready to train?" checklist that blocks only impossible starts.
 - Visual augmentation pipeline builder (step 2): blocks in execution order with on/off, probability dots, strength
   sliders and weakest/strongest thumbnails on the user's image; presets (None/Gentle/Standard/Strong); saved recipes;
   live gallery of real training patches with mask overlay; step-by-step strip; selected-block view; settings check
