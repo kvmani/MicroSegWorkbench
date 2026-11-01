@@ -467,3 +467,36 @@ def test_guided_workflow_frame(app, tmp_path):
     win.refresh_status()
     assert not win.train_page.start_btn.isEnabled() and "leaves only" in win.train_page.ready.text()
     win.close()
+
+
+def test_visual_preprocessing(app, tmp_path):
+    from microseg_workbench.core.dataset import create_dataset_version, validate_folder
+    from microseg_workbench.core.splits import DEFAULT_GROUP_REGEX, SplitConfig
+    from microseg_workbench.core.synthetic import SyntheticSpec, write_synthetic_dataset
+    from microseg_workbench.gui.app import MainWindow
+
+    write_synthetic_dataset(tmp_path / "data", SyntheticSpec(specimens=3, images_per_specimen=2, size=96))
+    ws = Workspace(tmp_path / "ws").ensure()
+    create_dataset_version(validate_folder(tmp_path / "data", DEFAULT_GROUP_REGEX), SplitConfig(),
+                           ws.datasets_dir, "d")
+    win = MainWindow(ws, interactive=False)
+    aug = win.augment_page
+    aug.main_tabs.setCurrentIndex(0)
+    aug.preview()
+    ed = aug.border_editor
+    assert (ed.img_h, ed.img_w) == (96, 96)
+    ed.drag_edge_to("bottom", 80)  # drag the bottom edge up by 16 px
+    assert aug.border[1].value() == 16 and aug.preprocess().exclude_border == (0, 16, 0, 0)
+    ed.drag_edge_to("top", 200)  # cannot drag past the other edge: at least 8 px stay
+    assert aug.border[0].value() == 96 - 16 - 8
+    aug.border[0].setValue(0)
+    aug.refresh_preprocess()
+    assert ed.border == [0, 16, 0, 0] and "96 x 80 px" in aug.size_info.text()
+    aug.resize_factor.setValue(0.25)
+    aug.refresh_preprocess()
+    assert aug.size_before.has_image() and aug.size_after.has_image()
+    assert "would be thinner" in aug.size_info.text() and "hydride" in aug.size_info.text()  # 2-3 px features break up
+    aug.resize_factor.setValue(1.0)
+    aug.refresh_preprocess()
+    assert "thinner" not in aug.size_info.text() and "hydride about" in aug.size_info.text()
+    win.close()

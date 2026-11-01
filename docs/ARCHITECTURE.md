@@ -216,3 +216,12 @@ whether settings changed since). The main window shows it as icons, a footer wit
 training page's "Ready to train?" checklist; only impossible preprocessing or a missing dataset block Start, the rest
 is advice. Beginner/Advanced mode is a workspace setting (`ui.json`, default Beginner) that hides expert form rows
 via `QFormLayout.setRowVisible`; hidden options keep their values and defaults.
+
+### AD-21 Visual preprocessing
+Step 2 is split into "A. Preprocessing" and "B. Augmentation pipeline". `BorderEditor` paints the example image with
+the excluded border hatched; edges are dragged in original-pixel coordinates (at least 8 px stay) and synchronised
+with the spin boxes, which remain the source of truth. Large images are shown reduced (up to 1600 px) while
+coordinates stay in original pixels. The resize view compares the same central region before/after resizing at true
+pixel size. The thin-feature warning uses feature width (2 x area / boundary length) times the resize factor, because
+nearest-neighbour shrinking roughly preserves total area while breaking thin features apart (area kept was tried and
+rejected as uninformative).

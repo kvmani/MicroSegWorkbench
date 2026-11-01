@@ -193,9 +193,13 @@ class _Task(QRunnable):
         try:
             result = self.fn()
         except Exception as exc:  # reported to the UI, never swallowed
-            self.signals.failed.emit(str(exc), traceback.format_exc())
+            outcome = (self.signals.failed, (str(exc), traceback.format_exc()))
         else:
-            self.signals.done.emit(result)
+            outcome = (self.signals.done, (result,))
+        try:
+            outcome[0].emit(*outcome[1])
+        except RuntimeError:
+            pass  # the window was closed while the task ran; nobody is waiting for the result
 
 
 _active: set[_Task] = set()

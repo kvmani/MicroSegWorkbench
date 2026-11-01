@@ -15,8 +15,9 @@ COLORS = {DONE: "#1a7f37", ATTENTION: "#9a5b00", TODO: "#1f2d3d", LOCKED: "#9a9a
 GUIDE = [
     ("Data", "Choose a folder of images and masks (or create demo data), press Check folder, fix any red problems, "
              "then Create dataset version."),
-    ("Preprocess", "Pick a starting point (Standard suits most data), look at the training patches, then press "
-                   "Check these settings."),
+    ("Preprocess", "A: leave out image borders or resize only if needed (often nothing to do). B: pick a "
+                   "starting point (Standard suits most data), look at the training patches, then press Check these "
+                   "settings."),
     ("Training", "Keep the Quick CPU preset for a first try, check the list under 'Ready to train?', then Start."),
     ("Results", "Read the test scores per class and look at the overlays; export a report to share."),
     ("Compare", "Tick two or more runs to see which settings made the difference."),

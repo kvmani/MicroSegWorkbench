@@ -72,7 +72,10 @@ the model is overfitting.</li>
 <li>CPU, memory and GPU figures are real measurements of the training process.</li>
 </ul>
 
-<h3>Preprocessing</h3>
+<h3>Preprocessing (step 2, tab A)</h3>
+<p>Drag the dashed edges on the image to leave out a strip such as an SEM data bar, or type the pixel counts below
+it. The resize slider shows the same small area before and after resizing at true pixel size, and the typical width
+of each feature class; a warning appears when features would become thinner than about 1.5 pixels and break up.</p>
 <p><i>Resize factor</i> shrinks or enlarges images before the model sees them (0.5 halves width and height). Masks are
 resized with nearest neighbour, so thin features can vanish when shrinking: check the preview. Evaluation and
 predictions are always mapped back to the original resolution and compared with the original masks.

@@ -19,7 +19,7 @@ from PySide6.QtWidgets import (
 
 from ..core.augment import PHOTOMETRIC_OPS, AugmentConfig, AugmentConfigError, augment
 from ..core.augment_pipeline import (
-    INTENSITY_GROUP_FIELD, PIPELINE, PRESET_HELP, PRESETS, STEPS, apply_preset, expected_rate, list_recipes,
+    INTENSITY_GROUP_FIELD, feature_widths, PIPELINE, PRESET_HELP, PRESETS, STEPS, apply_preset, expected_rate, list_recipes,
     load_recipe, matching_preset, preview_step, sanity_check, save_recipe,
 )
 from ..core.dataset import DatasetVersion, list_dataset_versions
@@ -27,14 +27,16 @@ from ..core.imageio import load_image, load_mask_values, to_unit_float
 from ..core.preprocess import NORMALIZATIONS, Preprocess, PreprocessError, resize_image, resize_labels
 from ..core.render import overlay, thumbnail, to_display_rgb
 from .context import AppContext
+from .preprocess_widgets import BorderEditor
 from .pipeline_widgets import (
     ACCENT, GEOMETRY_COLOR, INTENSITY_COLOR, Arrow, ClickableImage, Dots, SliderSpin, StepCard, group_frame,
     make_spin, rect_tile_caption,
 )
 from .widgets import ImageView, hint, run_background
 
-HELP = ("<b>Step 2 - Preprocessing and augmentation.</b> During training every patch passes through the pipeline "
-        "below, <b>from left to right, top row first</b>. Pick a starting point (<i>Gentle</i> or <i>Standard</i> "
+HELP = ("<b>Step 2 - Preprocessing and augmentation.</b> <b>A.</b> Leave out image borders and choose the image "
+        "size. <b>B.</b> During training every patch passes through the augmentation pipeline "
+        "<b>from left to right, top row first</b>. Pick a starting point (<i>Gentle</i> or <i>Standard</i> "
         "suit most data), then switch blocks on or off and drag the sliders: each block shows its weakest and "
         "strongest effect on your own image, and the patches at the bottom show what the model will see. Blue blocks "
         "move image and mask together; orange blocks change the image only. Run <b>Check these settings</b> before "
@@ -275,8 +277,6 @@ class AugmentPage(QWidget):
             self.border.append(b)
         self.resize_factor.valueChanged.connect(self._prep_changed)
         self.normalization.currentIndexChanged.connect(self._prep_changed)
-        prep_form.addRow("Resize factor:", self.resize_factor)
-        prep_form.addRow("Exclude border (px):", border_row)
         prep_form.addRow("Intensity normalization:", self.normalization)
 
         self.tabs = QTabWidget()
@@ -284,16 +284,65 @@ class AugmentPage(QWidget):
         self.tabs.addTab(steps_tab, "Step by step")
         self.tabs.addTab(detail, "Selected block")
         self.tabs.addTab(check, "Check settings")
-        self.tabs.addTab(prep, "Preprocessing")
 
         splitter = QSplitter(Qt.Orientation.Vertical)
         splitter.addWidget(pipe_scroll)
         splitter.addWidget(self.tabs)
         splitter.setSizes([560, 250])
+        aug_tab = QWidget()
+        al = QVBoxLayout(aug_tab)
+        al.setContentsMargins(0, 4, 0, 0)
+        al.addLayout(top)
+        al.addWidget(splitter, 1)
+
+        # ---- A. preprocessing tab: drag the border, compare sizes -----------------------------------------
+        self.border_editor = BorderEditor()
+        self.border_editor.changed.connect(self._border_dragged)
+        no_border = QPushButton("No border")
+        no_border.clicked.connect(lambda: [b.setValue(0) for b in self.border])
+        bl = QVBoxLayout()
+        bt = QLabel("<b>Exclude border</b> - drag the dashed edges to leave out a strip such as an SEM data bar. "
+                    "Excluded pixels are never trained on or scored.")
+        bt.setWordWrap(True)
+        bl.addWidget(bt)
+        bl.addWidget(self.border_editor, 1)
+        brow = QHBoxLayout()
+        brow.addLayout(border_row)
+        brow.addWidget(no_border)
+        brow.addStretch(1)
+        bl.addLayout(brow)
+        self.resize_slider = SliderSpin(self.resize_factor, lambda v: f"x {v:.2f}")
+        self.size_before = ImageView("original")
+        self.size_after = ImageView("as the model sees it")
+        self.size_info = QLabel("")
+        self.size_info.setWordWrap(True)
+        self.size_info.setTextFormat(Qt.TextFormat.RichText)
+        rl = QVBoxLayout()
+        rt = QLabel("<b>Resize</b> - shrink very large micrographs to save memory, or enlarge tiny features. Results "
+                    "are always scored at the original size.")
+        rt.setWordWrap(True)
+        rl.addWidget(rt)
+        rl.addWidget(self.resize_slider)
+        views = QHBoxLayout()
+        for title, view in (("Original pixels", self.size_before), ("After resizing (same area)", self.size_after)):
+            col = QVBoxLayout()
+            col.addWidget(QLabel(title))
+            col.addWidget(view, 1)
+            views.addLayout(col)
+        rl.addLayout(views, 1)
+        rl.addWidget(self.size_info)
+        rl.addWidget(prep)
+        prep_tab = QWidget()
+        pl = QHBoxLayout(prep_tab)
+        pl.addLayout(bl, 3)
+        pl.addLayout(rl, 2)
+        self.main_tabs = QTabWidget()
+        self.main_tabs.addTab(prep_tab, "A. Preprocessing")
+        self.main_tabs.addTab(aug_tab, "B. Augmentation pipeline")
+        self.main_tabs.setCurrentIndex(1)
         layout = QVBoxLayout(self)
         layout.addWidget(hint(HELP))
-        layout.addLayout(top)
-        layout.addWidget(splitter, 1)
+        layout.addWidget(self.main_tabs, 1)
         ctx.datasets_changed.connect(self.refresh)
         self._sync_cards()
         self.set_advanced(ctx.advanced)
@@ -481,6 +530,61 @@ class AugmentPage(QWidget):
         if self.dataset.count():
             self.refresh_timer.start()
 
+    # ---- preprocessing previews ------------------------------------------------------------------------------
+    def _border_dragged(self, t: int, b: int, left: int, right: int) -> None:
+        for spin, v in zip(self.border, (t, b, left, right)):
+            spin.blockSignals(True)
+            spin.setValue(v)
+            spin.blockSignals(False)
+        self._prep_changed()
+
+    def _original_sample(self) -> tuple[np.ndarray, np.ndarray, Any]:
+        version = self._version()
+        stem = self.sample.currentData()
+        key = (version.dataset_id if version else None, stem)
+        if getattr(self, "_orig_cache", None) and self._orig_cache[0] == key:
+            return self._orig_cache[1]
+        sample = next(s for s in version.samples() if s["stem"] == stem)
+        image = to_unit_float(load_image(version.image_path(sample)).array)
+        labels = version.class_map.channel_lut()[load_mask_values(version.mask_path(sample))]
+        self._orig_cache = (key, (image, labels, version))
+        return self._orig_cache[1]
+
+    def refresh_preprocess(self) -> None:
+        """Update the border editor, the before/after resize views and the class retention figures."""
+        if not self.dataset.count() or self.sample.currentData() is None:
+            return
+        image, labels, version = self._original_sample()
+        cmap = version.class_map
+        step = max(1, int(np.ceil(max(labels.shape) / 1600)))
+        self.border_editor.set_image(overlay(image[::step, ::step], labels[::step, ::step], cmap, alpha=0.35),
+                                     true_size=labels.shape)
+        self.border_editor.set_border(*(b.value() for b in self.border))
+        prep = self.preprocess()
+        try:
+            img, lab = prep.crop(image), prep.crop(labels)
+        except PreprocessError as exc:
+            self.size_info.setText(f"<span style='color:#b42318'>{exc}</span>")
+            return
+        shape = prep.scaled_shape(*lab.shape)
+        f = prep.resize_factor
+        r = int(min(160, *lab.shape))
+        ry, rx = (lab.shape[0] - r) // 2, (lab.shape[1] - r) // 2
+        reg_img, reg_lab = img[ry:ry + r, rx:rx + r], lab[ry:ry + r, rx:rx + r]
+        small_shape = (max(1, round(r * f)), max(1, round(r * f)))
+        small_img, small_lab = resize_image(reg_img, small_shape), resize_labels(reg_lab, small_shape)
+        self.size_before.set_array(overlay(reg_img, reg_lab, cmap, alpha=0.35))
+        self.size_after.set_array(overlay(small_img, small_lab, cmap, alpha=0.35))
+        widths = feature_widths(lab, cmap.names)
+        rows = [f"{name} about {w:.1f} px" + (f" -> {w * f:.1f} px" if f != 1 else "") for name, w in widths.items()]
+        text = (f"Image {lab.shape[1]} x {lab.shape[0]} px -> model sees {shape[1]} x {shape[0]} px."
+                + (" Typical feature width: " + ", ".join(rows) + "." if rows else ""))
+        too_thin = [name for name, w in widths.items() if w * f < 1.5]
+        if f < 1 and too_thin:
+            text += (f"<br><span style='color:#9a5b00'>&#9888; {', '.join(too_thin)} would be thinner than about "
+                     "1.5 pixels and break into fragments - use a larger resize factor.</span>")
+        self.size_info.setText(text)
+
     # ---- previews -------------------------------------------------------------------------------------------
     def preview(self) -> None:
         version = self._version()
@@ -506,6 +610,7 @@ class AugmentPage(QWidget):
                               "from outside the image, ignored in training.")
         self.show_steps(self.tile_index)
         self.select_step(self.selected_step)
+        self.refresh_preprocess()
 
     def _render(self, img: np.ndarray, lab: np.ndarray, with_mask: bool | None = None) -> np.ndarray:
         show = self.show_mask.isChecked() if with_mask is None else with_mask

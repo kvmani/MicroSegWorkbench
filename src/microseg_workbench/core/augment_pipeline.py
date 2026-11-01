@@ -135,6 +135,18 @@ def preview_step(image: np.ndarray, labels: np.ndarray, step_id: str, value: flo
     return np.clip(out, 0, 1).astype(np.float32), labels
 
 
+def feature_widths(labels: np.ndarray, class_names: list[str]) -> dict[str, float]:
+    """Typical width in pixels of each foreground class in one label image (2 x area / boundary length)."""
+    out = {}
+    for c in range(1, len(class_names)):
+        m = labels == c
+        area = int(m.sum())
+        boundary = int((m[1:, :] != m[:-1, :]).sum() + (m[:, 1:] != m[:, :-1]).sum())
+        if area >= 4 and boundary:
+            out[class_names[c]] = 2.0 * area / boundary
+    return out
+
+
 def thinnest_feature_width(samples: Sequence[tuple[np.ndarray, np.ndarray]], class_names: list[str]
                            ) -> tuple[str, float] | None:
     """Typical width (px) of the thinnest foreground class: 2 * area / boundary length, median over images."""

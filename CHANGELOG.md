@@ -1,6 +1,8 @@
 # Changelog
 
 ## Unreleased (0.4.0)
+- Visual preprocessing (step 2, tab A): drag the excluded border on the image; resize slider with before/after views
+  at true pixel size and a warning when features would become thinner than ~1.5 px.
 - Guided workflow: step status icons with reasons, footer with "what to do here" and Back/Next, Beginner/Advanced
   mode (Beginner default, remembered per workspace), "Ready to train?" checklist that blocks only impossible starts.
 - Visual augmentation pipeline builder (step 2): blocks in execution order with on/off, probability dots, strength
