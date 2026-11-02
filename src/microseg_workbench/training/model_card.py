@@ -65,6 +65,7 @@ def build_model_card(run: RunDir) -> dict[str, Any]:
         "input": {"channels": info.get("model", {}).get("in_channels"),
                   "normalization": cfg.get("normalization"), "resize_factor": cfg.get("resize_factor"),
                   "exclude_border": cfg.get("exclude_border"),
+                  "training_images": info.get("input_profile"),
                   "note": "Images are scaled by their bit depth, then preprocessed as above; predictions are "
                           "returned at the original resolution for the analysed region."},
         "training_data": {"dataset_id": dataset.get("dataset_id"), "manifest_sha256": dataset.get("manifest_sha256"),

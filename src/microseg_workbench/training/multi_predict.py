@@ -57,7 +57,10 @@ def compare_models_on_image(runs: list[RunDir], image_path: Path, truth: np.ndar
             np.asarray(cmap.values, np.uint8)[labels]
         counts = np.bincount(labels.ravel(), minlength=cmap.num_classes)
         info = run.info()
+        from .trainer import input_warnings
+
         models.append({
+            "input_warnings": input_warnings(run.info().get("input_profile"), loaded.array, image),
             "run_id": run.run_id, "network": info.get("model", {}).get("architecture_title", model.cfg.architecture),
             "class_map": cmap, "values": values, "seconds": seconds, "checkpoint_epoch": meta.get("epoch"),
             "fractions": {c.name: float(counts[k]) / labels.size for k, c in enumerate(cmap.classes)},

@@ -114,6 +114,11 @@ class SharePage(QWidget):
         r2.addWidget(self.local_run, 1)
         r2.addWidget(pub_r)
         r2.addWidget(get_r)
+        use_r = QPushButton("Download and segment images...")
+        use_r.setToolTip("Fetch the selected model (and its dataset) and apply it to a folder of new images.")
+        use_r.clicked.connect(self._download_and_use_dialog)
+        r2.addWidget(use_r)
+        self.use_model = None  # set by the main window: callable(run_dir, input_folder, output_folder)
         rl.addLayout(r2)
         self.publish_note = QTextEdit()
         self.publish_note.setPlaceholderText("Your observations for colleagues (required if the run has none yet): "
@@ -392,6 +397,32 @@ class SharePage(QWidget):
             self.ctx.runs_changed.emit()
 
         self._run("Download run", lambda: store.pull_run(run_id, ws, progress=self._progress.message.emit), after)
+
+    def _download_and_use_dialog(self) -> None:
+        from PySide6.QtWidgets import QFileDialog
+
+        run_id = self.selected_run_id()
+        if not run_id:
+            self.ctx.error(self, "Use model", "Select a shared run first.")
+            return
+        folder = QFileDialog.getExistingDirectory(self, "Folder with images to segment")
+        if not folder:
+            return
+        out = QFileDialog.getSaveFileName(self, "Name of the new results folder",
+                                          str(Path(folder).parent / f"predictions-{run_id}"))[0]
+        if out:
+            self.download_and_use(run_id, Path(folder), Path(out))
+
+    def download_and_use(self, run_id: str, input_folder: Path, output_folder: Path) -> None:
+        store, ws = self.store, self.ctx.workspace
+
+        def after(run) -> None:
+            self.ctx.datasets_changed.emit()
+            self.ctx.runs_changed.emit()
+            if self.use_model:
+                self.use_model(run, input_folder, output_folder)
+
+        self._run("Download model", lambda: store.pull_run(run_id, ws, progress=self._progress.message.emit), after)
 
     def submit_review(self) -> None:
         run_id = self.selected_run_id()

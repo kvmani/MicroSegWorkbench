@@ -51,7 +51,8 @@ Workspace folder (datasets and runs) defaults to `~/MicroSegWorkbench-workspace`
 | `msw report RUN` | Self-contained HTML report (scores, curves, overlays, settings, provenance) |
 | `msw compare-image IMAGE RUN RUN... [--mask M --dataset D] [--out f.png]` | Several models on one image, side by side |
 | `msw compare RUN RUN... [--csv f]` | Compare runs (warns if test sets differ) |
-| `msw predict RUN FOLDER --out NEW` | Segment new images (masks, overlays, predictions.json) |
+| `msw models` | All trained models: here and on the shared folder, approved first |
+| `msw predict RUN FOLDER --out NEW` | Segment new images (masks, overlays, predictions.json); a shared model is downloaded first; warns when images differ from the training images |
 | `msw architectures` | Available networks (U-Net, SegFormer-lite, plugins) |
 | `msw devices` | CPU/GPU, CUDA diagnosis, live GPU readings |
 | `msw import-oa EXPORT.zip [--out DIR]` | Import an OnlineAnnotator export (verified, provenance kept) |

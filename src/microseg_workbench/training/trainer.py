@@ -161,6 +161,38 @@ def check_dataset_unchanged(run: RunDir, version: DatasetVersion) -> None:
                          "train a new run.")
 
 
+def input_profile(version: DatasetVersion, max_images: int = 50) -> dict[str, Any]:
+    """Bit depth and brightness range of the training images, used to warn when new images look different."""
+    from ..core.imageio import load_image, to_unit_float
+
+    records = sorted(version.samples("train"), key=lambda r: r["stem"])
+    step = max(1, len(records) // max_images)
+    means = []
+    for r in records[::step]:
+        means.append(float(to_unit_float(load_image(version.image_path(r)).array).mean()))
+    arr = np.asarray(means or [0.0])
+    return {"dtypes": sorted({r["dtype"] for r in records}), "channels": sorted({r["channels"] for r in records}),
+            "mean_brightness": {"min": float(arr.min()), "max": float(arr.max()), "mean": float(arr.mean()),
+                                "std": float(arr.std())}, "images_measured": len(means)}
+
+
+def input_warnings(profile: dict[str, Any] | None, array: np.ndarray, unit_image: np.ndarray) -> list[str]:
+    """Plain-language reasons a new image may not suit the model (empty when it looks like the training data)."""
+    if not profile:
+        return []
+    out = []
+    if profile.get("dtypes") and str(array.dtype) not in profile["dtypes"]:
+        out.append(f"the image is {array.dtype} but the model was trained on {', '.join(profile['dtypes'])} images; "
+                   "brightness is scaled differently and results may be poor")
+    b = profile.get("mean_brightness") or {}
+    mean = float(unit_image.mean())
+    if b and (mean < b["min"] - 0.1 or mean > b["max"] + 0.1):
+        word = "darker" if mean < b["min"] else "brighter"
+        out.append(f"the image is clearly {word} than every training image (mean brightness {mean:.2f}; training "
+                   f"{b['min']:.2f}-{b['max']:.2f}); check the imaging conditions or retrain with such images")
+    return out
+
+
 def _check_memory(train: SplitSource, val: SplitSource | None, cfg: TrainConfig) -> None:
     """Refuse early, with advice, when keeping the data in memory would exhaust the computer's RAM."""
     need = train.estimated_bytes() + (val.estimated_bytes() if val is not None else 0)
@@ -320,6 +352,7 @@ def _execute(run: RunDir, cfg: TrainConfig, workspace: Workspace, on_event: Even
                 "environment": {"python": platform.python_version(), "platform": platform.platform(),
                                 "torch": torch.__version__, "torch_cuda": torch.version.cuda, "numpy": np.__version__,
                                 "torch_threads": torch.get_num_threads(), "deterministic_algorithms": True},
+                "input_profile": input_profile(version),
                 "fixed_samples": {"source_split": fixed_source, "stems": [s.stem for s in fixed],
                                   "preview_max_side_px": PREVIEW_MAX_SIDE},
                 "plugins": _plugins_used(cfg),

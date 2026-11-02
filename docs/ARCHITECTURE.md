@@ -282,3 +282,13 @@ preprocessing and maps predictions back to the full image as class values (255 =
 Scores against a ground-truth mask are computed only for models whose class list equals the mask's, on pixels analysed
 by every model (fair comparison). Pairwise agreement and a disagreement mask are computed when all models share
 classes. Used by the Compare page tab and `msw compare-image`.
+
+### AD-28 Fetch and run trained models; input checks
+`training/library.list_models` merges completed local runs with shared run records (local/shared/downloaded, network,
+dataset, test feature IoU, review status) and orders approved models first (`msw models`). `msw predict` and the
+Share page's *Download and segment images...* pull a shared run (and its dataset, verified) before predicting, so
+a colleague's model is usable in one step. At training time `trainer.input_profile` records the training images'
+dtypes and mean-brightness range in `run.json` and the model card; `trainer.input_warnings` compares each new image
+with it in prediction and multi-model comparison. Unlike images are still segmented (no silent refusal of
+legitimate data) but warnings are shown and stored in `predictions.json`. Older runs without a profile give no
+warnings.

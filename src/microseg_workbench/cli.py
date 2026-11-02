@@ -179,6 +179,8 @@ def cmd_compare_image(args: argparse.Namespace) -> int:
         fg = met.get("mean_iou_foreground")
         fr = ", ".join(f"{k} {100 * v:.1f}%" for k, v in m["fractions"].items())
         print(f"{m['run_id']} [{m['network']}] {m['seconds']:.2f}s  {fr}" + (f"  feature IoU {fg:.3f}" if fg is not None else ""))
+        for w in m.get("input_warnings", []):
+            print(f"  WARNING: {w}")
     if result["agreement"] and len(result["models"]) > 1:
         print("Pixel agreement between models (row vs column):")
         for m, row in zip(result["models"], result["agreement"]):
@@ -414,11 +416,52 @@ def cmd_compare(args: argparse.Namespace) -> int:
     return 0
 
 
+def _store_or_none(ws):
+    from .collab.settings import CollabSettings
+    from .collab.share import SharedStore, ShareError
+
+    settings = CollabSettings.load(ws)
+    if not settings.share_path:
+        return None
+    try:
+        return SharedStore.open(Path(settings.share_path))
+    except (ShareError, OSError):
+        return None
+
+
+def cmd_models(args: argparse.Namespace) -> int:
+    from .training.library import list_models
+
+    ws = _ws(args)
+    rows = list_models(ws, _store_or_none(ws))
+    if not rows:
+        print("No trained models yet.")
+    for r in rows:
+        where = "here" if r.get("local") else "shared only"
+        if r.get("local") and r.get("shared"):
+            where = "here + shared"
+        print(f"{r['run_id']}  [{(r.get('review') or '').upper()}]  {r.get('network')}  data {r.get('dataset_id')}  "
+              f"test feature IoU {_fmt(r.get('test_miou_fg'))}  ({where})")
+    print("Run one: msw predict RUN <image folder> --out <new folder>   (shared models are downloaded first)")
+    return 0
+
+
 def cmd_predict(args: argparse.Namespace) -> int:
     from .training.predict import PredictionError, predict_folder
     from .training.runs import RunDir
 
     ws = _ws(args)
+    if not (ws.runs_dir / args.run / "run.json").exists():
+        store = _store_or_none(ws)
+        if store is None:
+            print(f"Run {args.run} is not in this workspace and no shared folder is configured.", file=sys.stderr)
+            return 1
+        try:
+            print(f"Downloading model {args.run} from the shared folder...")
+            store.pull_run(args.run, ws)
+        except Exception as exc:
+            print(f"Cannot download {args.run}: {exc}", file=sys.stderr)
+            return 1
     try:
         report = predict_folder(RunDir(ws.runs_dir / args.run), Path(args.input), Path(args.out),
                                 checkpoint=args.checkpoint, device=args.device,
@@ -428,6 +471,8 @@ def cmd_predict(args: argparse.Namespace) -> int:
         return 1
     for err in report["errors"]:
         print(f"SKIPPED {err['file']}: {err['error']}")
+    for w in report.get("warnings", []):
+        print(f"WARNING {w['file']}: {w['warning']}")
     print(f"{len(report['images'])} prediction(s) written to {args.out}  [UNREVIEWED]")
     return 0 if report["images"] else 1
 
@@ -618,6 +663,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     sub.add_parser("datasets", help="list dataset versions").set_defaults(func=cmd_datasets)
     sub.add_parser("architectures", help="list available networks").set_defaults(func=cmd_architectures)
+    sub.add_parser("models", help="trained models here and on the shared folder").set_defaults(func=cmd_models)
     s = sub.add_parser("note", help="add or list observations for a run")
     s.add_argument("run")
     s.add_argument("text", nargs="?", help="observation to add (omit to list)")

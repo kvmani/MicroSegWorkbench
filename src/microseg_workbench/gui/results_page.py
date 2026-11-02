@@ -124,6 +124,9 @@ class ResultsPage(QWidget):
         ol.addWidget(self.note_edit)
         ol.addWidget(add_note_btn)
         tabs.addTab(obs, "Observations")
+        self.card_view = QTextEdit()
+        self.card_view.setReadOnly(True)
+        tabs.addTab(self.card_view, "Model card")
         self.result_tabs = tabs
 
         left = QWidget()
@@ -229,6 +232,7 @@ class ResultsPage(QWidget):
         from ..training.diagnostics import diagnose_run
 
         self._show_notes(run)
+        self._show_card(run)
 
         marks = {"ok": ("&#10003;", "#1a7f37"), "info": ("&#8505;", "#1f5fae"), "warn": ("&#9888;", "#9a5b00"),
                  "block": ("&#10007;", "#b42318")}
@@ -241,6 +245,46 @@ class ResultsPage(QWidget):
             for col, v in enumerate([str(e["epoch"]), _f(e["train_loss"]), _f(e["val_loss"]),
                                      _f(e["val_mean_iou_foreground"])]):
                 self.history.setItem(r, col, QTableWidgetItem(v))
+
+    def _show_card(self, run: RunDir) -> None:
+        import html as _html
+
+        from ..training.model_card import build_model_card
+
+        if not (run.checkpoints / "best.pt").exists():
+            self.card_view.setHtml("<p>No trained model yet.</p>")
+            return
+        c = build_model_card(run)
+        net, data, res, inp = c["network"], c["training_data"], c["results"], c["input"]
+        prof = inp.get("training_images") or {}
+        bright = prof.get("mean_brightness") or {}
+
+        def row(k: str, v: object) -> str:
+            return f"<tr><th align='left'>{_html.escape(k)}</th><td>{_html.escape(str(v))}</td></tr>"
+
+        rows = [
+            row("Network", f"{net.get('title')} ({net.get('architecture')}, {net.get('parameters'):,} parameters)"
+                if net.get("parameters") else net.get("title")),
+            row("Defined in", net.get("defined_in")),
+            row("Classes", ", ".join(f"{x['value']}={x['name']}" for x in (c["classes"] or {}).get("classes", []))),
+            row("Input", f"{inp.get('channels')} channel(s), {', '.join(prof.get('dtypes', []))}, normalization "
+                         f"{inp.get('normalization')}, resize x{inp.get('resize_factor')}, border "
+                         f"{inp.get('exclude_border')}"),
+            row("Training image brightness", f"{bright.get('min', 0):.2f}-{bright.get('max', 0):.2f}" if bright else "-"),
+            row("Training data", f"{data.get('dataset_id')} {data.get('split_counts')}"),
+            row("Annotation source", ((data.get("annotation_source") or {}).get("tool") or {}).get("id", "folder")
+                + (" - contains unapproved masks" if data.get("contains_unapproved_annotations") else "")),
+            row("Test results", f"{res.get('split')}: mean IoU {res.get('mean_iou')}, feature IoU "
+                                f"{res.get('mean_iou_foreground')}"),
+            row("Review", c["review_status"]),
+            row("Software", f"{(c['training'].get('tool') or {}).get('id')} {(c['training'].get('tool') or {}).get('version')}"
+                            f", torch {(c['training'].get('environment') or {}).get('torch')}"),
+            row("Checkpoint SHA-256", (c["checkpoint"] or {}).get("sha256")),
+            row("Observations", len(c["observations"])),
+            row("How to use", c["how_to_use"]),
+        ]
+        self.card_view.setHtml("<table cellpadding='3'>" + "".join(rows) + "</table><p style='color:#6b6b6b'>The full "
+                               "card is saved as model_card.json in the run folder and published with the run.</p>")
 
     def _show_notes(self, run: RunDir) -> None:
         import html as _html
@@ -349,6 +393,10 @@ class ResultsPage(QWidget):
             self.last_prediction = report
             self.predict_btn.setEnabled(True)
             skipped = f"; {len(report['errors'])} skipped" if report["errors"] else ""
+            if report.get("warnings"):
+                skipped += f"; {len(report['warnings'])} warning(s) - see predictions.json"
+                self.ctx.error(self, "Check these images", "; ".join(f"{w['file']}: {w['warning']}"
+                                                                     for w in report["warnings"][:5]))
             self.ctx.status_message.emit(f"{len(report['images'])} image(s) segmented into {output_folder}{skipped}. "
                                          "Results are unreviewed.")
             if self.ctx.interactive:

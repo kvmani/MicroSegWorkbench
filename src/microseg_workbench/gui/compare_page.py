@@ -250,6 +250,9 @@ class ComparePage(QWidget):
         notes = [] if result["same_classes"] else ["The models use different classes; agreement is not computed."]
         if result["agreement"] is not None and len(models) == 2:
             notes.append(f"The two models agree on {100 * result['agreement'][0][1]:.1f}% of pixels.")
+        for m in models:
+            for w in m.get("input_warnings", []):
+                notes.append(f"<span style='color:#9a5b00'>&#9888; {m['run_id']}: {w}.</span>")
         notes.append("Predictions are unreviewed.")
         self.si_note.setText(" ".join(notes))
 

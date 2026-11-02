@@ -52,7 +52,10 @@ def predict_folder(run: RunDir, input_folder: Path, output_folder: Path, checkpo
     prep = Preprocess.from_meta(meta)
     values = np.asarray(class_map.values, dtype=np.uint8)
     stage = staging_dir(output_folder.parent, output_folder.name)
-    records, errors = [], []
+    records, errors, warnings = [], [], []
+    from .trainer import input_warnings
+
+    profile = run.info().get("input_profile")
     try:
         for i, path in enumerate(images, 1):
             if progress:
@@ -72,6 +75,9 @@ def predict_folder(run: RunDir, input_folder: Path, output_folder: Path, checkpo
                 errors.append({"file": path.name, "error": str(exc)})
                 continue
             image = prep.crop(to_unit_float(loaded.array))
+            notes = input_warnings(profile, loaded.array, image)
+            for n in notes:
+                warnings.append({"file": path.name, "warning": n})
             labels = predict_labels(model, image, torch_device, prep)
             write_bytes_atomic(stage / f"{path.stem}_pred_mask.png",
                                encode_png(values[labels]))
@@ -103,6 +109,7 @@ def predict_folder(run: RunDir, input_folder: Path, output_folder: Path, checkpo
             "review_status": "unreviewed",
             "images": records,
             "errors": errors,
+            "warnings": warnings,
         }
         write_json_atomic(stage / "predictions.json", report)
         publish_dir(stage, output_folder)

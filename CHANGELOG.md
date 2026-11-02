@@ -1,6 +1,10 @@
 # Changelog
 
 ## Unreleased (0.4.0)
+- Fetch and run trained models: `msw models` (here and on the shared folder, approved first); `msw predict` downloads
+  a shared model automatically; Share page *Download and segment images...*; Results *Model card* tab.
+- Input checks: runs record the training images' bit depth and brightness range; prediction and model comparison
+  warn (and record in `predictions.json`) when a new image differs clearly.
 - Same image, several models: run any ticked models on one dataset image (with ground-truth scores) or any image file;
   side-by-side overlays, disagreement map, agreement, per-model class fractions and timing (Compare page,
   `msw compare-image`).

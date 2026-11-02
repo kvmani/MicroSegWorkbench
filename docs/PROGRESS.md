@@ -54,6 +54,25 @@ status, Next buttons, Beginner/Advanced mode (Beginner default), ready-to-train 
   Full suite 164 passed, 5 skipped. Not yet tried by real beginners; interactive desktop session (DPI, real mouse
   dragging of borders) still to be checked in the office.
 
+## Networks, cross-checks, observations, comparison, fetch-and-run — 2026-11-02 (owner request, 5 increments)
+Owner asked for: a critical review with beginner cross-checks; a choice of networks (U-Net, transformers) with
+plug-and-play for later ones; easy comparison of several trained models on one image in the app; observations
+recorded before publishing; easy fetch-and-run of trained models; complete metadata and provenance.
+- 1 Pluggable networks (AD-24, 1b095a9): registry, U-Net + SegFormer-lite (plain PyTorch, no new packages), plugin
+  hook, step-3 choice, `--architecture`, `msw architectures`. Tests `tests/test_architectures.py`,
+  `test_network_choice_reaches_training`. SegFormer-lite learns the demo data (feature IoU ~0.83 vs U-Net ~0.97).
+- 2 Beginner cross-checks (AD-25, 68d32a5): `core/health.py` dataset check (blocks a class absent from training),
+  `training/diagnostics.py` run check, `msw check-run`, Results diagnosis. Tests `tests/test_checks.py`.
+- 3 Observations and model card (AD-26, 71e9104): `notes.jsonl`, `model_card.json`, `msw note` / `msw card`,
+  publishing requires an observation; predictions record the card hash. Tests `tests/test_model_card.py`.
+- 4 Same image, several models (AD-27, 7c570de): Compare-page tab and `msw compare-image` with ground-truth scores,
+  agreement and disagreement map. Tests `tests/test_multi_predict.py`, `test_same_image_several_models_tab`.
+- 5 Fetch and run (AD-28): `msw models`, `msw predict` auto-downloads shared models, Share *Download and segment
+  images...*, Results *Model card* tab, input profile + warnings for unlike images. Tests `tests/test_library.py`,
+  extended `test_share_page_two_colleagues`. Full suite 192 passed, 5 skipped (Linux, CPU).
+- Gaps: SegFormer-lite has no pretrained weights (offline; trains from scratch, needs more data/epochs); input
+  checks cover bit depth and brightness only (not pixel size or contrast); not yet tried by real users.
+
 ## Current objective
 Hand over for office rehearsal and independent review. Implementation agents should next address review findings
 and the highest-value remaining gaps (multi-process augmentation, CUDA package, service authentication).

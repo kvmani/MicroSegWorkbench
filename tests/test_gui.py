@@ -240,6 +240,24 @@ def test_share_page_two_colleagues(app, tmp_path):
     bob_results = bob_win.results_page
     bob_results.refresh()
     assert "APPROVED" in bob_results.banner.text() and "bob" in bob_results.banner.text()
+    bob_results.result_tabs.setCurrentIndex(bob_results.result_tabs.count() - 1)
+    card = bob_results.card_view.toPlainText()
+    assert "U-Net" in card and version.dataset_id in card and "Checkpoint SHA-256" in card
+
+    # A third colleague fetches the approved model and segments new images in one step.
+    wc = Workspace(tmp_path / "carol").ensure()
+    carol_win = MainWindow(wc, interactive=False)
+    carol = carol_win.share_page
+    carol.path.setText(str(tmp_path / "share"))
+    carol.user.setText("carol")
+    carol.save_settings()
+    carol.runs.selectRow(0)
+    out = tmp_path / "carol-pred"
+    carol.download_and_use(carol.selected_run_id(), tmp_path / "data", out)
+    wait_until(app, lambda: not carol.busy and (out / "predictions.json").exists()
+               and not carol_win.results_page.predicting)
+    assert carol_win.stack.currentWidget() is carol_win.results_page
+    assert (wc.runs_dir / "alice-run" / "checkpoints" / "best.pt").exists()
 
 
 def test_import_onlineannotator_export_in_data_page(app, tmp_path):

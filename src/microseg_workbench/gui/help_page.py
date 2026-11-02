@@ -187,6 +187,17 @@ networks, presets or training data can be compared this way. Command line: <code
 <p>In <b>4 Results</b>, select a run and press <i>Segment new images...</i>. Choose a folder of micrographs and a new
 output folder; each image gets a mask (<code>_pred_mask.png</code>, original class values), an overlay and an entry in
 <code>predictions.json</code> with the model's identity. Predictions are unreviewed.</p>
+<p>To use a colleague's model, select it in <b>6 Share</b> and press <i>Download and segment images...</i>: the model
+and its dataset are fetched (verified), then your images are segmented. On the command line, <code>msw models</code>
+lists every model here and on the shared folder, and <code>msw predict RUN ...</code> downloads a shared model
+automatically.</p>
+<p>The workbench remembers what the training images looked like (bit depth, brightness range). If a new image is,
+for example, 16-bit where training used 8-bit, or clearly brighter or darker than every training image, it is still
+segmented but you get a warning (also stored in <code>predictions.json</code>): check those results carefully or
+retrain with such images.</p>
+<p>The <i>Model card</i> tab in <b>4 Results</b> shows the model's identity card: network, classes, input
+requirements, training data and annotation source, test scores, review status, software versions, checkpoint
+fingerprint and observations. It is saved as <code>model_card.json</code> and published with the run.</p>
 
 <h3>Results and approval</h3>
 <p>The best checkpoint (highest validation feature IoU) is evaluated on the test split. Results stay
