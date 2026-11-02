@@ -198,6 +198,17 @@ class MainWindow(QMainWindow):
         c = version.manifest["split_counts"]
         items.append(("ok" if c["train"] else "block",
                       f"Dataset {dataset_id}: {c['train']} training / {c['val']} validation / {c['test']} test images"))
+        from ..core.health import dataset_health
+
+        health = dataset_health(version)
+        blocks = [m for lv, m in health if lv == "block"]
+        warns = [m for lv, m in health if lv == "warn"]
+        if blocks:
+            items.append(("block", blocks[0]))
+        elif warns:
+            items.append(("warn", f"Dataset check: {warns[0]}" + (f" (+{len(warns) - 1} more)" if len(warns) > 1 else "")))
+        else:
+            items.append(("ok", "Dataset check: no problems found"))
         try:
             prep = self.augment_page.preprocess()
             for s in version.samples():

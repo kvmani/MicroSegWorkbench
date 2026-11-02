@@ -253,3 +253,14 @@ all-MLP decoder; plain PyTorch, so no extra packages in the air-gapped install).
 width/depth knobs each network documents. The trainer checks the patch size against the network's `multiple`.
 `run.json` records the architecture, its title and the module that defined it (plugin provenance). Third-party
 libraries such as segmentation-models-pytorch can be added as plugins without changing the core.
+
+### AD-25 Beginner cross-checks
+`core/health.dataset_health` (manifest only, torch-free) reports block/warn/info findings: a foreground class absent
+from the training split (blocks Start in the app; the CLI warns), absent from validation/test, fewer than 5 training
+images, single-image splits, a single test group, a foreground class above 50 % of pixels (likely inverted masks) and
+unapproved annotations. `training/diagnostics.diagnose_run` reads a finished run: overfitting (validation loss rose
+>20 % above its minimum 3+ epochs after it while training loss fell), still improving (last of the final three epochs
+is the best and gained >0.02 IoU), a test class never found, validation-test gap >0.15 IoU, classes with <500 test
+pixels, unapproved ground truth. Thresholds are heuristics stated in the messages' wording ("probably", "uncertain");
+the results themselves are never altered. Diagnostics are written to `evaluation/diagnostics.json` and shown in the
+Results page, the report and the CLI.

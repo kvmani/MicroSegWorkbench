@@ -1,6 +1,9 @@
 # Changelog
 
 ## Unreleased (0.4.0)
+- Dataset check (missing classes per split, inverted-looking masks, tiny splits, single test specimen, unapproved
+  annotations) and run check (overfitting, under-training, never-found classes, validation-test gap, thin test
+  evidence) in the app, reports and CLI (`msw check-run`).
 - Pluggable networks: architecture registry with U-Net and SegFormer-lite (transformer, plain PyTorch); plugins can add
   more; choose in step 3 or `--architecture`; `msw architectures`; architecture recorded in runs and comparisons.
 - Workflow map across the top (eight stages coloured by status, click to go there) and a "This run" summary card with a

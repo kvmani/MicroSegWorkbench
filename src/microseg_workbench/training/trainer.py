@@ -332,6 +332,9 @@ def _execute(run: RunDir, cfg: TrainConfig, workspace: Workspace, on_event: Even
                 truth = tile_grid([thumbnail(to_display_rgb(s.image), PREVIEW_MAX_SIDE),
                                    thumbnail(overlay(s.image, s.labels, class_map), PREVIEW_MAX_SIDE)], columns=2)
                 write_bytes_atomic(run.samples / f"truth_{s.stem}.png", encode_png(truth))
+            from ..core.health import dataset_health
+
+            emit({"type": "dataset_health", "findings": [list(f) for f in dataset_health(version)]})
             emit({"type": "start", "device": device_info.label(), "note": device_note, "batch_size": batch_size,
                   "mixed_precision": use_amp, "steps_per_epoch": steps_per_epoch, "epochs": total_epochs,
                   "parameters": count_parameters(model)})
@@ -430,6 +433,9 @@ def _execute(run: RunDir, cfg: TrainConfig, workspace: Workspace, on_event: Even
         sampler.stop()
         status(state="evaluating", epoch=total_epochs, message="Evaluating best model on the test split")
         report = evaluate_run(run, workspace, device=device)
+        from .diagnostics import diagnostics_dict
+
+        write_json_atomic(run.evaluation / "diagnostics.json", diagnostics_dict(run))
         emit({"type": "evaluation", "split": report["split"], "metrics": report["metrics"] and {
             k: report["metrics"][k] for k in ("mean_iou", "mean_iou_foreground", "pixel_accuracy")}})
         early = (f" Stopped early after epoch {stopped_early}: no validation improvement for "

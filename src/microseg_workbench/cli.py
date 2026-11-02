@@ -69,6 +69,10 @@ def cmd_prepare(args: argparse.Namespace) -> int:
         print(f"Cannot split: {exc}", file=sys.stderr)
         return 1
     print(f"Dataset version: {version.dataset_id}")
+    from .core.health import dataset_health
+
+    for level, message in dataset_health(version):
+        print(f"  {level.upper():5s} {message}")
     print(f"Split counts: {version.manifest['split_counts']}")
     for group, splits in version.manifest["groups"].items():
         print(f"  group {group}: {splits[0]}")
@@ -115,6 +119,19 @@ def cmd_hydride_stats(args: argparse.Namespace) -> int:
         print(f"Cannot analyse: {exc}", file=sys.stderr)
         return 1
     print(f"Computed with {report['computed_with']}  [UNREVIEWED]")
+    return 0
+
+
+def cmd_check_run(args: argparse.Namespace) -> int:
+    from .training.diagnostics import diagnose_run
+    from .training.runs import RunDir
+
+    run = RunDir(_ws(args).runs_dir / args.run)
+    if not run.info():
+        print(f"Unknown run {args.run}", file=sys.stderr)
+        return 1
+    for level, message in diagnose_run(run):
+        print(f"{level.upper():5s} {message}")
     return 0
 
 
@@ -180,8 +197,16 @@ def _train_config(args: argparse.Namespace):
     return preset_config(args.preset, args.dataset, **overrides)
 
 
+def _print_findings(findings) -> None:
+    for level, message in findings:
+        if level != "ok":
+            print(f"  {level.upper():5s} {message}")
+
+
 def _print_event(event: dict[str, Any]) -> None:
     kind = event["type"]
+    if kind == "dataset_health":
+        _print_findings(event["findings"])
     if kind == "start":
         amp = ", mixed precision" if event.get("mixed_precision") else ""
         print(f"{event['note']}  ({event['parameters']:,} parameters, batch size {event.get('batch_size')}{amp}, "
@@ -224,6 +249,12 @@ def cmd_train(args: argparse.Namespace) -> int:
             print(f"Training failed: {exc}", file=sys.stderr)
             return 1
         print(f"Run directory: {run.root}  state: {run.status().get('state')}")
+        if run.status().get("state") == "completed" and not args.quiet:
+            from .training.diagnostics import diagnose_run
+
+            print("Run check:")
+            for level, message in diagnose_run(run):
+                print(f"  {level.upper():5s} {message}")
         if run.status().get("state") != "completed":
             return 0 if run.status().get("state") == "cancelled" else 1
         runs.append(run)
@@ -516,6 +547,9 @@ def build_parser() -> argparse.ArgumentParser:
 
     sub.add_parser("datasets", help="list dataset versions").set_defaults(func=cmd_datasets)
     sub.add_parser("architectures", help="list available networks").set_defaults(func=cmd_architectures)
+    s = sub.add_parser("check-run", help="plain-language diagnosis of a finished run")
+    s.add_argument("run")
+    s.set_defaults(func=cmd_check_run)
     sub.add_parser("devices", help="show CPU/GPU devices").set_defaults(func=cmd_devices)
     sub.add_parser("runs", help="list training runs").set_defaults(func=cmd_runs)
 

@@ -7,7 +7,7 @@ import json
 from pathlib import Path
 from typing import Callable
 
-from PySide6.QtCore import QUrl
+from PySide6.QtCore import Qt, QUrl
 from PySide6.QtGui import QDesktopServices, QPixmap
 from PySide6.QtWidgets import (
     QComboBox, QFileDialog, QHBoxLayout, QLineEdit, QLabel, QListWidget, QListWidgetItem, QPushButton, QSplitter, QTableWidget,
@@ -56,6 +56,10 @@ class ResultsPage(QWidget):
         self.predict_btn.clicked.connect(self._predict_dialog)
 
         self.banner = QLabel("")
+        self.diagnosis = QLabel("")
+        self.diagnosis.setWordWrap(True)
+        self.diagnosis.setTextFormat(Qt.TextFormat.RichText)
+        self.diagnosis.setStyleSheet("QLabel { background: #f6f6f4; border: 1px solid #d8d8d4; padding: 6px; }")
         self.details = QLabel("Select a run.")
         self.details.setWordWrap(True)
         self.metrics = QTableWidget(0, 7)
@@ -122,6 +126,7 @@ class ResultsPage(QWidget):
         rv.setContentsMargins(0, 0, 0, 0)
         rv.addWidget(self.banner)
         rv.addWidget(self.details)
+        rv.addWidget(self.diagnosis)
         rv.addWidget(tabs, 1)
         splitter = QSplitter()
         splitter.addWidget(left)
@@ -202,6 +207,13 @@ class ResultsPage(QWidget):
         elif status.get("state") == "completed":
             lines.append("No evaluation found.")
         self.details.setText("<br>".join(lines))
+        from ..training.diagnostics import diagnose_run
+
+        marks = {"ok": ("&#10003;", "#1a7f37"), "info": ("&#8505;", "#1f5fae"), "warn": ("&#9888;", "#9a5b00"),
+                 "block": ("&#10007;", "#b42318")}
+        diag = diagnose_run(run)
+        self.diagnosis.setText("<b>Run check</b><br>" + "<br>".join(
+            f"<span style='color:{marks[lv][1]}'>{marks[lv][0]}</span> {msg}" for lv, msg in diag))
         epochs = run.epoch_history()
         self.history.setRowCount(len(epochs))
         for r, e in enumerate(epochs):

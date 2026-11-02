@@ -46,6 +46,7 @@ Workspace folder (datasets and runs) defaults to `~/MicroSegWorkbench-workspace`
 | `msw train DATASET --repeat-seeds N` | N runs differing only by seed; prints mean +/- sd of test scores |
 | `msw resume RUN` | Continue a cancelled, failed or interrupted run exactly where it stopped |
 | `msw evaluate RUN` | Re-evaluate a run's best checkpoint |
+| `msw check-run RUN` | Plain-language diagnosis: overfitting, under-training, missed classes, ... |
 | `msw report RUN` | Self-contained HTML report (scores, curves, overlays, settings, provenance) |
 | `msw compare RUN RUN... [--csv f]` | Compare runs (warns if test sets differ) |
 | `msw predict RUN FOLDER --out NEW` | Segment new images (masks, overlays, predictions.json) |

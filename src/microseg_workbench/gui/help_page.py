@@ -119,6 +119,16 @@ blocks fire more or less often than set.</li>
 they then appear as extra orange blocks at the end of the pipeline. Plugins never change masks, and every run records
 which plugin files it used.</p>
 
+<h3>Automatic checks</h3>
+<ul>
+<li><b>Dataset check</b> (after creating a dataset version and in <i>Ready to train?</i>): a class missing from the
+training images (this blocks training - the model could not learn it), classes missing from validation or test, very
+few images, a test set from a single specimen, masks that look inverted, and unapproved annotations.</li>
+<li><b>Run check</b> (step 4, the report and <code>msw check-run</code>): overfitting, still improving at the last
+epoch, a class the model never finds, test scores much lower than validation, and classes with too few test pixels
+to trust. Each finding says what to try next.</li>
+</ul>
+
 <h3>Choosing a network</h3>
 <p>Step 3 lets you pick the <b>Network</b>: <i>U-Net</i> (convolutional; fast and reliable on small datasets - the best
 first choice) or <i>SegFormer-lite</i> (a transformer that sees wider context; it usually needs more images and

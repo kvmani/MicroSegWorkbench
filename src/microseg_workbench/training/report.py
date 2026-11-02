@@ -92,6 +92,10 @@ def build_report(run: RunDir, review: str = "unreviewed") -> str:
     setting_rows = "".join(f"<tr><th>{html.escape(k)}</th><td>{_f(v)}</td></tr>" for k, v in settings.items())
     aug_rows = "".join(f"<tr><th>{html.escape(k)}</th><td>{_f(v)}</td></tr>" for k, v in cfg.get("augment", {}).items())
     env = info.get("environment", {})
+    from .diagnostics import diagnose_run
+
+    marks = {"ok": "&#10003;", "info": "&#8505;", "warn": "&#9888;", "block": "&#10007;"}
+    diag = "".join(f"<li>{marks[lv]} {html.escape(msg)}</li>" for lv, msg in diagnose_run(run))
     banner_color = "#1a7f37" if review.startswith("approved") else "#8a5a00"
     split = (evaluation or {}).get("split", "test")
     return f"""<!doctype html><html lang="en"><head><meta charset="utf-8">
@@ -112,6 +116,7 @@ Checkpoint: best validation epoch {_f((evaluation or {}).get('checkpoint_epoch')
 pixel accuracy {_f(metrics.get('pixel_accuracy'))}, evaluated pixels {_f(metrics.get('evaluated_pixels'))}.</p>
 <table><tr><th>Class</th><th>IoU</th><th>Dice</th><th>Precision</th><th>Recall</th><th>True pixels</th>
 <th>Predicted pixels</th></tr>{rows}</table>
+<h2>Run check</h2><ul>{diag}</ul>
 <h2>Training</h2><div class="grid">{loss_chart}{iou_chart}</div>
 <table><tr><th>Epoch</th><th>Training loss</th><th>Validation loss</th><th>Validation mIoU (features)</th></tr>{hist_rows}</table>
 <h2>Test images</h2>{overlays or '<p>No overlays.</p>'}

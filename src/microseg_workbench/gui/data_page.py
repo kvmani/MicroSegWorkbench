@@ -446,8 +446,14 @@ class DataPage(QWidget):
             self._set_busy(False, f"Dataset version {version.dataset_id} ready")
             self.last_version_id = version.dataset_id
             counts = version.manifest["split_counts"]
+            from ..core.health import dataset_health
+
+            marks = {"ok": ("&#10003;", "#1a7f37"), "info": ("&#8505;", "#1f5fae"), "warn": ("&#9888;", "#9a5b00"),
+                     "block": ("&#10007;", "#b42318")}
+            health = "<br>".join(f"<span style='color:{marks[lv][1]}'>{marks[lv][0]}</span> {msg}"
+                                 for lv, msg in dataset_health(version))
             self.result.setText(f"Created <b>{version.dataset_id}</b> - train {counts['train']}, "
-                                f"validation {counts['val']}, test {counts['test']}. Continue with step 2.")
+                                f"validation {counts['val']}, test {counts['test']}. Continue with step 2.<br>{health}")
             self.ctx.datasets_changed.emit()
 
         run_background(lambda: create_dataset_version(report, cfg, datasets_dir, name), done,
