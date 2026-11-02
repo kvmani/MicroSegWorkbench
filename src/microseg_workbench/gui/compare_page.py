@@ -22,7 +22,7 @@ HELP = ("<b>Step 5 - Compare.</b> Tick two or more runs to see their settings an
 
 ROWS = [("Dataset version", "dataset_id"), ("State", "state"), ("Preset", "preset"), ("Epochs done", "epochs_done"),
         ("Learning rate", "learning_rate"), ("Batch size", "batch_size"), ("Loss", "loss"), ("Seed", "seed"),
-        ("Model", "model"), ("Parameters", "parameters"), ("Device", "device"), ("Training time (s)", "train_seconds"),
+        ("Network", "model"), ("Parameters", "parameters"), ("Device", "device"), ("Training time (s)", "train_seconds"),
         ("Best validation epoch", "best_val_epoch"), ("Best validation mIoU (features)", "best_val_miou_fg"),
         ("Test mIoU", "test_miou"), ("Test mIoU (features)", "test_miou_fg"),
         ("Test pixel accuracy", "test_pixel_accuracy")]

@@ -38,7 +38,10 @@ from ..core.preprocess import Preprocess
 from .data import Sample, SplitSource, count_batches, cropped, iter_epoch_batches, prefetch
 from .device import choose_device, cuda_diagnosis, is_out_of_memory, probe_batch_size
 from .engine import evaluate, load_checkpoint, save_checkpoint, segmentation_loss
-from .model import ModelConfig, UNet, count_parameters
+from torch import nn
+
+from .architectures import ARCHITECTURES, build_model
+from .model import ModelConfig, count_parameters
 from .monitor import ResourceSampler
 from .runs import ACTIVE_STATES, RunDir, new_run_id, utc_now
 
@@ -117,7 +120,7 @@ def _save_fixed_samples(run: RunDir, epoch: int, fixed: list[Sample], preds: dic
     return files
 
 
-def _resolve_batch_size(cfg: TrainConfig, model: UNet, device: torch.device, channels: int, use_amp: bool,
+def _resolve_batch_size(cfg: TrainConfig, model: nn.Module, device: torch.device, channels: int, use_amp: bool,
                         n_patches: int) -> tuple[int, list[dict]]:
     if cfg.batch_size > 0:
         return min(cfg.batch_size, max(1, n_patches)), []
@@ -256,8 +259,12 @@ def _execute(run: RunDir, cfg: TrainConfig, workspace: Workspace, on_event: Even
             raise ValueError("Mixed precision needs an NVIDIA GPU; choose 'auto' or 'off' on the CPU.")
         use_amp = device.type == "cuda" and cfg.mixed_precision in ("auto", "on")
         model_cfg = ModelConfig(in_channels=in_channels, num_classes=class_map.num_classes,
-                                base_channels=cfg.base_channels, depth=cfg.depth)
-        model = UNet(model_cfg).to(device)
+                                base_channels=cfg.base_channels, depth=cfg.depth, architecture=cfg.architecture)
+        model = build_model(model_cfg).to(device)
+        if cfg.augment.patch_size % model.multiple:
+            raise ValueError(f"The training patch size ({cfg.augment.patch_size} px) must be a multiple of "
+                             f"{model.multiple} for {ARCHITECTURES[cfg.architecture].title} with depth {cfg.depth}. "
+                             "Change the patch size in step 2 or the depth.")
         n_patches = len(train) * cfg.patches_per_image
 
         info = run.info() if resume else {}
@@ -301,7 +308,9 @@ def _execute(run: RunDir, cfg: TrainConfig, workspace: Workspace, on_event: Even
                 "config": cfg.to_dict(),
                 "resolved": {"batch_size": batch_size, "mixed_precision": use_amp, "steps_per_epoch": steps_per_epoch,
                              "batch_size_probe": probe},
-                "model": model_cfg.to_dict() | {"parameters": count_parameters(model)},
+                "model": model_cfg.to_dict() | {"parameters": count_parameters(model),
+                                                "architecture_title": ARCHITECTURES[cfg.architecture].title,
+                                                "architecture_module": ARCHITECTURES[cfg.architecture].module},
                 "dataset": {"dataset_id": version.dataset_id,
                             "manifest_sha256": sha256_file(version.root / MANIFEST_FILENAME),
                             "split_counts": {"train": len(train), "val": len(val), "test": test_count}},

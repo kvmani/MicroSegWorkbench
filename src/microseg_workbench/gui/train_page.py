@@ -115,6 +115,11 @@ class TrainPage(QWidget):
         self.series_runs: list[str] = []
 
         self.dataset = QComboBox()
+        self.network = QComboBox()
+        self.network_note = QLabel("")
+        self.network_note.setWordWrap(True)
+        self.network_note.setMinimumHeight(3 * self.network_note.fontMetrics().lineSpacing() + 4)
+        self.network.currentIndexChanged.connect(self._network_changed)
         self.preset = QComboBox()
         for name in PRESETS:
             self.preset.addItem(name.replace("_", " ").title().replace("Cpu", "CPU").replace("Gpu", "GPU"), name)
@@ -179,6 +184,8 @@ class TrainPage(QWidget):
         form.setContentsMargins(0, 0, 0, 0)
         setup_outer.addWidget(form_host)
         form.addRow("Dataset version:", self.dataset)
+        form.addRow("Network:", self.network)
+        form.addRow(self.network_note)
         form.addRow("Preset:", self.preset)
         form.addRow(self.preset_note)
         form.addRow("Epochs:", self.epochs)
@@ -301,6 +308,7 @@ class TrainPage(QWidget):
         self.timer.timeout.connect(self.poll)
         ctx.datasets_changed.connect(self.refresh)
         self._apply_preset()
+        self._fill_networks()
         self.refresh()
         self._detect_devices()
 
@@ -343,7 +351,7 @@ class TrainPage(QWidget):
             self.summary_card.setText(
                 f"<b>This run:</b> {est['epochs']} epochs x {est['steps_per_epoch']} steps; each epoch uses "
                 f"{est['patches_per_epoch']} patches of {est['patch_size']} px from {est['train_images']} training "
-                f"images; batch size {batch}.<br>Model: U-Net with {est['parameters']:,} parameters on "
+                f"images; batch size {batch}.<br>Model: {est['architecture']} with {est['parameters']:,} parameters on "
                 f"{est['device']}.<br><b>Time:</b> about {_fmt_seconds(est['total_seconds'])} "
                 f"<span style='color:#6b6b6b'>(rough, from timing one step on this computer)</span>. "
                 f"<b>Images in memory:</b> about {mem:.1f} MB.")
@@ -374,6 +382,26 @@ class TrainPage(QWidget):
         idx = self.dataset.findData(current)
         self.dataset.setCurrentIndex(idx if idx >= 0 else self.dataset.count() - 1)
 
+    def _fill_networks(self) -> None:
+        from ..training.architectures import ARCHITECTURES
+
+        current = self.network.currentData() or "unet"
+        self.network.blockSignals(True)
+        self.network.clear()
+        for a in ARCHITECTURES.values():
+            self.network.addItem(a.title, a.name)
+        idx = self.network.findData(current)
+        self.network.setCurrentIndex(max(0, idx))
+        self.network.blockSignals(False)
+        self._network_changed()
+
+    def _network_changed(self, *_args) -> None:
+        from ..training.architectures import ARCHITECTURES
+
+        arch = ARCHITECTURES.get(self.network.currentData())
+        self.network_note.setText(arch.description if arch else "")
+        self.schedule_estimate()
+
     def _apply_preset(self) -> None:
         values = PRESETS[self.preset.currentData()]
         self.preset_note.setText(values["description"])
@@ -400,7 +428,7 @@ class TrainPage(QWidget):
         dataset_id = self.dataset.currentData()
         if not dataset_id:
             raise TrainConfigError("Create a dataset version in step 1 first.")
-        overrides = dict(epochs=self.epochs.value(), batch_size=self.batch.value(), learning_rate=self.lr.value(),
+        overrides = dict(architecture=self.network.currentData() or "unet", epochs=self.epochs.value(), batch_size=self.batch.value(), learning_rate=self.lr.value(),
                          seed=self.seed.value(), device=self.device.currentData(), loss=self.loss.currentData(),
                          mixed_precision=self.precision.currentData(), images_in_memory=self.in_memory.value(),
                          early_stopping_patience=self.patience.value())

@@ -581,3 +581,26 @@ def test_workflow_map_and_run_summary(app, tmp_path):
     assert est["total_seconds"] > 0
     assert "This run:" in train.summary_card.text() and "about" in train.summary_card.text()
     win.close()
+
+
+def test_network_choice_reaches_training(app, tmp_path):
+    from microseg_workbench.core.dataset import create_dataset_version, validate_folder
+    from microseg_workbench.core.splits import DEFAULT_GROUP_REGEX, SplitConfig
+    from microseg_workbench.core.synthetic import SyntheticSpec, write_synthetic_dataset
+    from microseg_workbench.gui.app import MainWindow
+
+    write_synthetic_dataset(tmp_path / "data", SyntheticSpec(specimens=3, images_per_specimen=2, size=64))
+    ws = Workspace(tmp_path / "ws").ensure()
+    create_dataset_version(validate_folder(tmp_path / "data", DEFAULT_GROUP_REGEX), SplitConfig(),
+                           ws.datasets_dir, "d")
+    win = MainWindow(ws, interactive=False)
+    train = win.train_page
+    assert train.network.isVisibleTo(train)  # visible in Beginner mode too
+    assert {train.network.itemData(i) for i in range(train.network.count())} >= {"unet", "segformer"}
+    train.network.setCurrentIndex(train.network.findData("segformer"))
+    assert "transformer" in train.network_note.text()
+    assert train.build_config().architecture == "segformer"
+    train.refresh_estimate()
+    wait_until(app, lambda: train.estimate is not None and not train.estimating)
+    assert "SegFormer" in train.summary_card.text()
+    win.close()

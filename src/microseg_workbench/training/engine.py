@@ -15,7 +15,9 @@ from ..core.augment import IGNORE_INDEX
 from ..core.metrics import confusion_matrix, metrics_from_confusion
 from ..core.preprocess import Preprocess, normalize, resize_image
 from .data import Sample
-from .model import ModelConfig, UNet
+from .architectures import build_model
+from .model import ModelConfig
+from torch import nn
 
 CHECKPOINT_SCHEMA = "microseg-workbench.checkpoint/1"
 
@@ -47,7 +49,7 @@ def segmentation_loss(logits: torch.Tensor, target: torch.Tensor, kind: str) -> 
 
 
 @torch.no_grad()
-def predict_logits(model: UNet, image: np.ndarray, device: torch.device) -> torch.Tensor:
+def predict_logits(model: nn.Module, image: np.ndarray, device: torch.device) -> torch.Tensor:
     """Full-image inference on float32 (H, W, C); reflect-pads to the U-Net multiple and crops back."""
     model.eval()
     h, w = image.shape[:2]
@@ -65,7 +67,7 @@ TILE_OVERLAP = 64
 
 
 @torch.no_grad()
-def predict_probabilities(model: UNet, image: np.ndarray, device: torch.device, tile: int = TILE,
+def predict_probabilities(model: nn.Module, image: np.ndarray, device: torch.device, tile: int = TILE,
                           overlap: int = TILE_OVERLAP) -> torch.Tensor:
     """Class probabilities (K, H, W) on the CPU.
 
@@ -91,7 +93,7 @@ def predict_probabilities(model: UNet, image: np.ndarray, device: torch.device, 
     return acc / count
 
 
-def segment_probabilities(model: UNet, image: np.ndarray, device: torch.device, prep: Preprocess,
+def segment_probabilities(model: nn.Module, image: np.ndarray, device: torch.device, prep: Preprocess,
                           tile: int = TILE) -> torch.Tensor:
     """Probabilities (K, H, W) at the ORIGINAL resolution for a [0, 1] image (resize, normalize, predict, map back)."""
     h, w = image.shape[:2]
@@ -102,14 +104,14 @@ def segment_probabilities(model: UNet, image: np.ndarray, device: torch.device, 
     return probs
 
 
-def predict_labels(model: UNet, image: np.ndarray, device: torch.device, prep: Preprocess | None = None,
+def predict_labels(model: nn.Module, image: np.ndarray, device: torch.device, prep: Preprocess | None = None,
                    tile: int = TILE) -> np.ndarray:
     """Model channel index per pixel (uint8) at the image's original resolution."""
     return segment_probabilities(model, image, device, prep or Preprocess(), tile=tile).argmax(0).to(torch.uint8).numpy()
 
 
 @torch.no_grad()
-def evaluate(model: UNet, samples: Iterable[Sample], device: torch.device, class_names: list[str],
+def evaluate(model: nn.Module, samples: Iterable[Sample], device: torch.device, class_names: list[str],
              prep: Preprocess | None = None, keep: set[str] | None = None,
              on_prediction: Callable[[Sample, np.ndarray], None] | None = None,
              ) -> tuple[dict[str, Any], float | None, dict[str, np.ndarray]]:
@@ -140,7 +142,7 @@ def evaluate(model: UNet, samples: Iterable[Sample], device: torch.device, class
     return metrics, (float(np.mean(losses)) if losses else None), preds
 
 
-def save_checkpoint(path: Path, model: UNet, payload: dict[str, Any]) -> None:
+def save_checkpoint(path: Path, model: nn.Module, payload: dict[str, Any]) -> None:
     """Atomic checkpoint write (temp file + replace) so a crash never leaves a torn file."""
     data = dict(payload)
     data["schema"] = CHECKPOINT_SCHEMA
@@ -155,11 +157,11 @@ def save_checkpoint(path: Path, model: UNet, payload: dict[str, Any]) -> None:
             tmp.unlink()
 
 
-def load_checkpoint(path: Path, device: torch.device | str = "cpu") -> tuple[UNet, dict[str, Any]]:
+def load_checkpoint(path: Path, device: torch.device | str = "cpu") -> tuple[nn.Module, dict[str, Any]]:
     data = torch.load(path, map_location=device, weights_only=True)
     if data.get("schema") != CHECKPOINT_SCHEMA:
         raise ValueError(f"{path} is not a MicroSegWorkbench checkpoint.")
-    model = UNet(ModelConfig(**data["model_config"]))
+    model = build_model(ModelConfig(**data["model_config"]))
     model.load_state_dict(data["model_state"])
     model.to(device).eval()
     return model, data

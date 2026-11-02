@@ -118,6 +118,14 @@ def cmd_hydride_stats(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_architectures(args: argparse.Namespace) -> int:
+    from .training.architectures import ARCHITECTURES
+
+    for a in ARCHITECTURES.values():
+        print(f"{a.name:12s} {a.title}\n{'':12s} {a.description}\n{'':12s} size knobs: {a.size_help} (from {a.module})")
+    return 0
+
+
 def cmd_datasets(args: argparse.Namespace) -> int:
     for v in list_dataset_versions(_ws(args).datasets_dir):
         print(f"{v.dataset_id}  {v.manifest['split_counts']}  classes={v.class_map.names}")
@@ -167,7 +175,7 @@ def _train_config(args: argparse.Namespace):
         payload = json.loads(Path(args.config).read_text())
         payload["dataset_id"] = args.dataset
         return TrainConfig.from_dict(payload)
-    overrides = {k: getattr(args, k) for k in ("epochs", "batch_size", "learning_rate", "seed", "device",
+    overrides = {k: getattr(args, k) for k in ("architecture", "epochs", "batch_size", "learning_rate", "seed", "device",
                                                "num_threads", "mixed_precision", "early_stopping_patience") if getattr(args, k) is not None}
     return preset_config(args.preset, args.dataset, **overrides)
 
@@ -507,6 +515,7 @@ def build_parser() -> argparse.ArgumentParser:
     s.set_defaults(func=cmd_import_oa)
 
     sub.add_parser("datasets", help="list dataset versions").set_defaults(func=cmd_datasets)
+    sub.add_parser("architectures", help="list available networks").set_defaults(func=cmd_architectures)
     sub.add_parser("devices", help="show CPU/GPU devices").set_defaults(func=cmd_devices)
     sub.add_parser("runs", help="list training runs").set_defaults(func=cmd_runs)
 
@@ -526,6 +535,7 @@ def build_parser() -> argparse.ArgumentParser:
             s.add_argument("dataset")
         s.add_argument("--preset", default="quick_cpu")
         s.add_argument("--config", help="JSON training config (overrides preset)")
+        s.add_argument("--architecture", help="network, e.g. unet or segformer (msw architectures lists them)")
         s.add_argument("--epochs", type=int)
         s.add_argument("--batch-size", type=int, help="0 = automatic (fits GPU memory)")
         s.add_argument("--mixed-precision", choices=("auto", "on", "off"))

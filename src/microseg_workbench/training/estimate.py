@@ -13,7 +13,8 @@ from ..core.workspace import Workspace
 from .config import TrainConfig
 from .data import SplitSource, count_batches
 from .device import choose_device
-from .model import ModelConfig, UNet, count_parameters
+from .architectures import ARCHITECTURES, build_model
+from .model import ModelConfig, count_parameters
 from .trainer import CPU_AUTO_BATCH
 
 
@@ -31,7 +32,8 @@ def estimate_run(cfg: TrainConfig, workspace: Workspace, timing_steps: int = 2) 
     device, info, _note = choose_device(cfg.device)
     batch = cfg.batch_size or (CPU_AUTO_BATCH if device.type == "cpu" else 16)
     steps = count_batches(len(train), cfg.patches_per_image, batch)
-    model = UNet(ModelConfig(channels, version.class_map.num_classes, cfg.base_channels, cfg.depth)).to(device)
+    model = build_model(ModelConfig(channels, version.class_map.num_classes, cfg.base_channels, cfg.depth,
+                                    cfg.architecture)).to(device)
     p = cfg.augment.patch_size
     x = torch.zeros(batch, channels, p, p, device=device)
     y = torch.zeros(batch, p, p, dtype=torch.long, device=device)
@@ -67,6 +69,6 @@ def estimate_run(cfg: TrainConfig, workspace: Workspace, timing_steps: int = 2) 
     return {
         "epochs": cfg.epochs, "steps_per_epoch": steps, "batch_size": batch, "auto_batch": cfg.batch_size == 0,
         "patches_per_epoch": len(train) * cfg.patches_per_image, "patch_size": p, "train_images": len(train),
-        "parameters": count_parameters(model), "device": info.label(), "step_seconds": step_s, "augment_seconds_per_patch": aug_s,
+        "parameters": count_parameters(model), "architecture": ARCHITECTURES[cfg.architecture].title, "device": info.label(), "step_seconds": step_s, "augment_seconds_per_patch": aug_s,
         "total_seconds": total_s, "data_memory_bytes": train.estimated_bytes() + val.estimated_bytes(),
     }

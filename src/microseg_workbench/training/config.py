@@ -16,6 +16,7 @@ class TrainConfigError(ValueError):
 @dataclass(frozen=True)
 class TrainConfig:
     dataset_id: str
+    architecture: str = "unet"  # network; see training/architectures.py (plugins can add more)
     epochs: int = 15
     batch_size: int = 8  # 0 = automatic (largest that fits in GPU memory, max 64; 8 on CPU)
     learning_rate: float = 3e-3
@@ -51,7 +52,9 @@ class TrainConfig:
             (self.fixed_samples >= 0, "fixed samples must not be negative"),
             (self.images_in_memory >= 0, "images in memory must be 0 (all) or more"),
             (self.early_stopping_patience >= 0, "early stopping patience must be 0 (off) or more"),
-            (self.augment.patch_size % 2 ** self.depth == 0, "patch size must be divisible by 2^depth"),
+            (self.architecture != "unet" or self.augment.patch_size % 2 ** self.depth == 0,
+             "patch size must be divisible by 2^depth"),
+            (bool(self.architecture) and self.architecture.replace("_", "").isalnum(), "invalid network name"),
         ]
         for ok, message in checks:
             if not ok:

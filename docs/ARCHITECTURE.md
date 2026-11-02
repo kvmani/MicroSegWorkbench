@@ -241,3 +241,15 @@ counts, model parameters, batch size (automatic -> CPU default or 16 on GPU, re-
 from timing real forward/backward steps on dummy patches plus measured augmentation on a real training image and a
 validation allowance. It is labelled as rough; it ran within ~25 % of the real training loop on the demo data.
 Word-wrapped status texts sit outside `QFormLayout` (which clipped them) and the setup column scrolls.
+
+## Decisions (networks, cross-checks, provenance - 2026-11-02)
+
+### AD-24 Pluggable network architectures
+`training/architectures.py` keeps a registry (`register_architecture(name, title, description, builder, multiple)`).
+`ModelConfig.architecture` (already stored in checkpoints; old ones are U-Net) selects the builder; `build_model`
+loads plugins on demand if a name is unknown and fails with a clear message otherwise. Built in: `unet` and
+`segformer` (SegFormer-style: overlapping patch embeddings, efficient self-attention with spatial reduction, Mix-FFN,
+all-MLP decoder; plain PyTorch, so no extra packages in the air-gapped install). `base_channels`/`depth` are generic
+width/depth knobs each network documents. The trainer checks the patch size against the network's `multiple`.
+`run.json` records the architecture, its title and the module that defined it (plugin provenance). Third-party
+libraries such as segmentation-models-pytorch can be added as plugins without changing the core.

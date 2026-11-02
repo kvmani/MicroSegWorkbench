@@ -47,7 +47,9 @@ def run_summary(run: RunDir) -> dict[str, Any]:
         "batch_size": info.get("resolved", {}).get("batch_size", cfg.get("batch_size")),
         "loss": cfg.get("loss", "cross_entropy"),
         "seed": cfg.get("seed"),
-        "model": f"U-Net base {cfg.get('base_channels')} depth {cfg.get('depth')}",
+        "architecture": cfg.get("architecture", "unet"),
+        "model": f"{info.get('model', {}).get('architecture_title', 'U-Net (convolutional)')} "
+                 f"base {cfg.get('base_channels')} depth {cfg.get('depth')}",
         "parameters": info.get("model", {}).get("parameters"),
         "device": f"{info.get('device', {}).get('kind')}: {info.get('device', {}).get('name')}",
         "mixed_precision": info.get("resolved", {}).get("mixed_precision"),

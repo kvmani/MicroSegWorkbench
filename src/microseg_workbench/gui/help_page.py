@@ -119,6 +119,12 @@ blocks fire more or less often than set.</li>
 they then appear as extra orange blocks at the end of the pipeline. Plugins never change masks, and every run records
 which plugin files it used.</p>
 
+<h3>Choosing a network</h3>
+<p>Step 3 lets you pick the <b>Network</b>: <i>U-Net</i> (convolutional; fast and reliable on small datasets - the best
+first choice) or <i>SegFormer-lite</i> (a transformer that sees wider context; it usually needs more images and
+epochs). Train both on the same dataset version and compare them in step 5 or on single images. Developers can add more
+networks as plugins; every run records which network (and plugin file) it used.</p>
+
 <h3>GPU training</h3>
 <ul>
 <li>The <b>Device</b> list and the line below it show whether an NVIDIA GPU was found and why not, if not.</li>
