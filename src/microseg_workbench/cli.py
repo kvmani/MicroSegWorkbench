@@ -122,6 +122,35 @@ def cmd_hydride_stats(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_note(args: argparse.Namespace) -> int:
+    from .collab.settings import CollabSettings
+    from .training.model_card import add_note, read_notes
+    from .training.runs import RunDir
+
+    ws = _ws(args)
+    run = RunDir(ws.runs_dir / args.run)
+    if not run.info():
+        print(f"Unknown run {args.run}", file=sys.stderr)
+        return 1
+    if args.text:
+        add_note(run, args.text, CollabSettings.load(ws).user_name())
+    for n in read_notes(run):
+        print(f"{n['time'][:16]} {n['author']} ({n['kind']}): {n['text']}")
+    return 0
+
+
+def cmd_card(args: argparse.Namespace) -> int:
+    from .training.model_card import write_model_card
+    from .training.runs import RunDir
+
+    run = RunDir(_ws(args).runs_dir / args.run)
+    if not (run.checkpoints / "best.pt").exists():
+        print("This run has no trained model yet.", file=sys.stderr)
+        return 1
+    print(json.dumps(write_model_card(run), indent=2))
+    return 0
+
+
 def cmd_check_run(args: argparse.Namespace) -> int:
     from .training.diagnostics import diagnose_run
     from .training.runs import RunDir
@@ -419,7 +448,7 @@ def cmd_share(args: argparse.Namespace) -> int:
             print(f"Published dataset {rec['dataset_id']} ({rec['bytes']:,} bytes)")
         elif action == "publish-run":
             rec = store.publish_run(RunDir(ws.runs_dir / args.run), tuple(args.checkpoints.split(",")), user=user,
-                                    progress=progress)
+                                    progress=progress, note=args.note)
             print(f"Published run {rec['run_id']} (unreviewed until someone approves it)")
         elif action == "pull-dataset":
             version = store.pull_dataset(args.dataset, ws, progress=progress)
@@ -547,6 +576,13 @@ def build_parser() -> argparse.ArgumentParser:
 
     sub.add_parser("datasets", help="list dataset versions").set_defaults(func=cmd_datasets)
     sub.add_parser("architectures", help="list available networks").set_defaults(func=cmd_architectures)
+    s = sub.add_parser("note", help="add or list observations for a run")
+    s.add_argument("run")
+    s.add_argument("text", nargs="?", help="observation to add (omit to list)")
+    s.set_defaults(func=cmd_note)
+    s = sub.add_parser("card", help="write and show the run's model card (metadata and provenance)")
+    s.add_argument("run")
+    s.set_defaults(func=cmd_card)
     s = sub.add_parser("check-run", help="plain-language diagnosis of a finished run")
     s.add_argument("run")
     s.set_defaults(func=cmd_check_run)
@@ -627,6 +663,7 @@ def build_parser() -> argparse.ArgumentParser:
     x.add_argument("dataset")
     x = ss.add_parser("publish-run")
     x.add_argument("run")
+    x.add_argument("--note", help="your observations (required if the run has none yet)")
     x.add_argument("--checkpoints", default="best", help="comma list: best,last")
     x = ss.add_parser("pull-dataset")
     x.add_argument("dataset")

@@ -443,6 +443,9 @@ def _execute(run: RunDir, cfg: TrainConfig, workspace: Workspace, on_event: Even
         status(state="completed", epoch=stopped_early or total_epochs, best_epoch=best_epoch,
                stopped_early=stopped_early,
                message=f"Finished. Best epoch {best_epoch}.{early} Results are unreviewed.")
+        from .model_card import write_model_card
+
+        write_model_card(run)  # after the final status so the card says 'completed'
         emit({"type": "end", "state": "completed"})
     except TrainingCancelled:
         status(state="cancelled", message="Cancelled by user. The last completed epoch's checkpoint is kept; "

@@ -46,6 +46,7 @@ Workspace folder (datasets and runs) defaults to `~/MicroSegWorkbench-workspace`
 | `msw train DATASET --repeat-seeds N` | N runs differing only by seed; prints mean +/- sd of test scores |
 | `msw resume RUN` | Continue a cancelled, failed or interrupted run exactly where it stopped |
 | `msw evaluate RUN` | Re-evaluate a run's best checkpoint |
+| `msw note RUN "text"` / `msw card RUN` | Add/list observations; write and show the model card (metadata, provenance) |
 | `msw check-run RUN` | Plain-language diagnosis: overfitting, under-training, missed classes, ... |
 | `msw report RUN` | Self-contained HTML report (scores, curves, overlays, settings, provenance) |
 | `msw compare RUN RUN... [--csv f]` | Compare runs (warns if test sets differ) |
@@ -62,7 +63,7 @@ Workspace folder (datasets and runs) defaults to `~/MicroSegWorkbench-workspace`
 | `msw share init PATH` | Prepare an empty shared folder (administrator, once) |
 | `msw share config --path PATH [--user NAME] [--service URL --token T]` | Connect this workspace |
 | `msw share status` | Shared datasets and runs with review status |
-| `msw share publish-dataset ID` / `publish-run RUN` | Publish (verified, immutable, deduplicated) |
+| `msw share publish-dataset ID` / `publish-run RUN --note "..."` | Publish (verified, immutable, deduplicated; runs need an observation) |
 | `msw share pull-dataset ID` / `pull-run RUN` | Download (resumable, verified) |
 | `msw share review RUN --decision approved\|needs_changes\|rejected --comment "..."` | Record a review |
 | `msw share check` / `gc` / `sync` | Verify all files / remove stale partial uploads / re-index the service |

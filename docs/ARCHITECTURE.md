@@ -264,3 +264,14 @@ is the best and gained >0.02 IoU), a test class never found, validation-test gap
 pixels, unapproved ground truth. Thresholds are heuristics stated in the messages' wording ("probably", "uncertain");
 the results themselves are never altered. Diagnostics are written to `evaluation/diagnostics.json` and shown in the
 Results page, the report and the CLI.
+
+### AD-26 Observations and the model card
+Observations are an append-only `notes.jsonl` per run (author, time, kind, text); corrections are new notes.
+`model_card.json` (schema `microseg-workbench.model-card/1`) is regenerated at the end of training and whenever a note is
+added: network (architecture, defining module, size, parameters), classes, input (channels, normalization, resize,
+excluded border), training data (dataset id, manifest SHA-256, split, annotation source, unapproved flag), training
+(config, resolved settings, device, environment, tool version and git commit, plugins, resumes), results, run
+diagnostics, observations, checkpoint SHA-256 and usage. Publishing a run requires at least one observation (the
+publish note is stored as kind `publication`); `notes.jsonl` and `model_card.json` are published files and the record
+carries the observations and the card's key sections, so colleagues see them without downloading. Predictions record
+the model card's SHA-256.

@@ -10,7 +10,7 @@ from typing import Callable
 from PySide6.QtCore import Qt, QUrl
 from PySide6.QtGui import QDesktopServices, QPixmap
 from PySide6.QtWidgets import (
-    QComboBox, QFileDialog, QHBoxLayout, QLineEdit, QLabel, QListWidget, QListWidgetItem, QPushButton, QSplitter, QTableWidget,
+    QComboBox, QFileDialog, QHBoxLayout, QLineEdit, QTextEdit, QLabel, QListWidget, QListWidgetItem, QPushButton, QSplitter, QTableWidget,
     QTableWidgetItem, QTabWidget, QVBoxLayout, QWidget,
 )
 
@@ -106,6 +106,25 @@ class ResultsPage(QWidget):
         tabs.addTab(overlays, "Test overlays")
         tabs.addTab(self.history, "Training history")
         tabs.addTab(stats, "Feature statistics")
+        obs = QWidget()
+        ol = QVBoxLayout(obs)
+        self.notes_view = QLabel("")
+        self.notes_view.setWordWrap(True)
+        self.notes_view.setTextFormat(Qt.TextFormat.RichText)
+        self.notes_view.setAlignment(Qt.AlignmentFlag.AlignTop | Qt.AlignmentFlag.AlignLeft)
+        self.note_edit = QTextEdit()
+        self.note_edit.setPlaceholderText("What did you look at, what works, what does not, what is this model for? "
+                                          "Notes are kept with the run, cannot be edited later, and are published with "
+                                          "it.")
+        self.note_edit.setMaximumHeight(90)
+        add_note_btn = QPushButton("Add observation")
+        add_note_btn.clicked.connect(self.add_observation)
+        ol.addWidget(QLabel("Observations (newest last):"))
+        ol.addWidget(self.notes_view, 1)
+        ol.addWidget(self.note_edit)
+        ol.addWidget(add_note_btn)
+        tabs.addTab(obs, "Observations")
+        self.result_tabs = tabs
 
         left = QWidget()
         lv = QVBoxLayout(left)
@@ -209,6 +228,8 @@ class ResultsPage(QWidget):
         self.details.setText("<br>".join(lines))
         from ..training.diagnostics import diagnose_run
 
+        self._show_notes(run)
+
         marks = {"ok": ("&#10003;", "#1a7f37"), "info": ("&#8505;", "#1f5fae"), "warn": ("&#9888;", "#9a5b00"),
                  "block": ("&#10007;", "#b42318")}
         diag = diagnose_run(run)
@@ -220,6 +241,33 @@ class ResultsPage(QWidget):
             for col, v in enumerate([str(e["epoch"]), _f(e["train_loss"]), _f(e["val_loss"]),
                                      _f(e["val_mean_iou_foreground"])]):
                 self.history.setItem(r, col, QTableWidgetItem(v))
+
+    def _show_notes(self, run: RunDir) -> None:
+        import html as _html
+
+        from ..training.model_card import read_notes
+
+        notes = read_notes(run)
+        self.notes_view.setText("<br>".join(
+            f"<b>{_html.escape(n['author'])}</b> <span style='color:#6b6b6b'>{n['time'][:16].replace('T', ' ')} - "
+            f"{n['kind']}</span><br>{_html.escape(n['text'])}" for n in notes) or "No observations yet.")
+
+    def add_observation(self) -> None:
+        from ..collab.settings import CollabSettings
+        from ..training.model_card import NoteError, add_note
+
+        run = self.selected_run()
+        if run is None:
+            self.ctx.error(self, "Observation", "Select a run first.")
+            return
+        try:
+            add_note(run, self.note_edit.toPlainText(), CollabSettings.load(self.ctx.workspace).user_name())
+        except NoteError as exc:
+            self.ctx.error(self, "Observation", str(exc))
+            return
+        self.note_edit.clear()
+        self._show_notes(run)
+        self.ctx.status_message.emit(f"Observation saved with {run.run_id}.")
 
     def export_report(self) -> None:
         import re

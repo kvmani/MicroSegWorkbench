@@ -81,6 +81,11 @@ def test_full_workflow(app, tmp_path):
     assert res.history.rowCount() == 3
     assert res.overlay.has_image()
     assert "Run check" in res.diagnosis.text()
+    res.add_observation()  # empty: refused
+    assert "Write the observation" in res.ctx.last_error
+    res.note_edit.setPlainText("Pore boundaries a bit soft.")
+    res.add_observation()
+    assert "Pore boundaries" in res.notes_view.text() and not res.note_edit.toPlainText()
     res.export_report()
     assert res.last_report is not None and "UNREVIEWED" in res.last_report.read_text(encoding="utf-8")
     win.close()
@@ -203,6 +208,9 @@ def test_share_page_two_colleagues(app, tmp_path):
     assert "Connected" in alice.conn.text()
     alice.publish_dataset()
     wait_until(app, lambda: not alice.busy)
+    alice.publish_run()  # refused: no observations yet
+    assert "observations" in alice.ctx.last_error
+    alice.publish_note.setPlainText("Hydrides look right on the overlays.")
     alice.publish_run()
     wait_until(app, lambda: not alice.busy)
     assert alice.runs.rowCount() == 1 and alice.runs.item(0, 1).text() == "UNREVIEWED"
@@ -228,7 +236,7 @@ def test_share_page_two_colleagues(app, tmp_path):
     assert bob.runs.item(0, 1).text() == "APPROVED"
     bob.approved_only.setChecked(True)
     assert bob.runs.rowCount() == 1
-    assert "approved" in bob.history.text()
+    assert "approved" in bob.history.text() and "Hydrides look right" in bob.history.text()
     bob_results = bob_win.results_page
     bob_results.refresh()
     assert "APPROVED" in bob_results.banner.text() and "bob" in bob_results.banner.text()

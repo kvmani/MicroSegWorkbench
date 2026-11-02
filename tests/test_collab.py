@@ -180,7 +180,13 @@ def test_run_publication_rules_pull_and_reviews(two_workspaces):
     with pytest.raises(ShareError, match="Publish dataset version"):
         share.publish_run(run, user="alice")
     share.publish_dataset(version, user="alice")
-    rec = share.publish_run(run, user="alice")
+    with pytest.raises(ShareError, match="Record your observations"):
+        share.publish_run(run, user="alice")
+    rec = share.publish_run(run, user="alice", note="Pores slightly under-segmented; fine for hydride fraction.")
+    assert rec["observations"][-1]["text"].startswith("Pores") and rec["observations"][-1]["kind"] == "publication"
+    assert "notes.jsonl" in rec["files"] and "model_card.json" in rec["files"]
+    assert rec["model_card"]["network"]["architecture"] == "unet"
+    assert rec["model_card"]["checkpoint"]["sha256"]
     assert "checkpoints/best.pt" in rec["files"] and "checkpoints/last.pt" not in rec["files"]
     assert rec["summary"]["mean_iou"] is not None
 

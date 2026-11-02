@@ -34,7 +34,8 @@ def test_two_users_share_review_and_index(tmp_path, capsys, monkeypatch):
         assert main(["--workspace", wa, "train", dataset_id, "--config", str(cfg), "--run-id", "ra", "--quiet"]) == 0
         assert main(["--workspace", wa, "share", "publish-run", "ra"]) == 1  # dataset not yet published
         assert main(["--workspace", wa, "share", "--quiet", "publish-dataset", dataset_id]) == 0
-        assert main(["--workspace", wa, "share", "--quiet", "publish-run", "ra"]) == 0
+        assert main(["--workspace", wa, "share", "--quiet", "publish-run", "ra"]) == 1  # observations required
+        assert main(["--workspace", wa, "share", "--quiet", "publish-run", "ra", "--note", "looks fine"]) == 0
         assert main(["--workspace", wa, "share", "review", "ra", "--decision", "approved"]) == 1  # self-approval
         assert main(["--workspace", wb, "share", "--quiet", "pull-run", "ra"]) == 0
         assert main(["--workspace", wb, "share", "review", "ra", "--decision", "approved", "--comment", "ok"]) == 0

@@ -156,7 +156,11 @@ class SharedStore:
 
     # ---- runs ----------------------------------------------------------------------------------------------
     def publish_run(self, run: RunDir, checkpoints: tuple[str, ...] = ("best",), user: str | None = None,
-                    progress: Progress | None = None) -> dict[str, Any]:
+                    progress: Progress | None = None, note: str | None = None) -> dict[str, Any]:
+        """Publish a completed run. ``note`` (required unless the run already has observations) is recorded as an
+        observation first, so every published model says what its author saw and intends it for."""
+        from ..training.model_card import add_note, read_notes, write_model_card
+
         if run.state() != "completed":
             raise ShareError(f"Only completed runs can be published; {run.run_id} is {run.state()}.")
         info = run.info()
@@ -173,7 +177,13 @@ class SharedStore:
                 check_dataset_unchanged(run, DatasetVersion.open(local))
             except ValueError as exc:
                 raise ShareError(str(exc)) from exc
-        rels = ["run.json", "status.json", "events.jsonl"]
+        if note and note.strip():
+            add_note(run, note, user or current_user(), kind="publication")
+        if not read_notes(run):
+            raise ShareError("Record your observations before publishing: what did you check, what is this model "
+                             "good (or not good) for?")
+        card = write_model_card(run)
+        rels = ["run.json", "status.json", "events.jsonl", "notes.jsonl", "model_card.json"]
         rels += sorted(p.relative_to(run.root).as_posix() for p in run.evaluation.rglob("*") if p.is_file())
         rels += sorted(p.relative_to(run.root).as_posix() for p in run.samples.rglob("*") if p.is_file())
         rels += [f"checkpoints/{c}.pt" for c in checkpoints]
@@ -194,6 +204,9 @@ class SharedStore:
             "files": files,
             "config": info.get("config"),
             "model": info.get("model"),
+            "observations": card["observations"],
+            "model_card": {k: card[k] for k in ("network", "classes", "input", "training_data", "results",
+                                                "diagnostics", "checkpoint")},
             "device": info.get("device"),
             "summary": {"split": evaluation.get("split"), "mean_iou": metrics.get("mean_iou"),
                         "mean_iou_foreground": metrics.get("mean_iou_foreground"),

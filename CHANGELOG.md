@@ -1,6 +1,8 @@
 # Changelog
 
 ## Unreleased (0.4.0)
+- Observations (append-only notes per run; Results tab, `msw note`) and a full model card per run (`model_card.json`,
+  `msw card`); publishing requires an observation and carries notes and card; predictions record the card hash.
 - Dataset check (missing classes per split, inverted-looking masks, tiny splits, single test specimen, unapproved
   annotations) and run check (overfitting, under-training, never-found classes, validation-test gap, thin test
   evidence) in the app, reports and CLI (`msw check-run`).

@@ -115,6 +115,11 @@ class SharePage(QWidget):
         r2.addWidget(pub_r)
         r2.addWidget(get_r)
         rl.addLayout(r2)
+        self.publish_note = QTextEdit()
+        self.publish_note.setPlaceholderText("Your observations for colleagues (required if the run has none yet): "
+                                             "what did you check, what is this model good or not good for?")
+        self.publish_note.setMaximumHeight(60)
+        rl.addWidget(self.publish_note)
 
         # review
         self.history = QLabel("Select a shared run to see its reviews.")
@@ -283,11 +288,25 @@ class SharePage(QWidget):
         run_id = run_id or self.selected_run_id()
         if not run_id or not self.store:
             return
+        import html as _html
+
         reviews = self.store.reviews(run_id)
+        try:
+            record = self.store.run_record(run_id)
+        except ShareError:
+            record = {}
+        obs = record.get("observations") or []
+        card = record.get("model_card") or {}
+        net = (card.get("network") or {}).get("title")
+        lines = [f"<b>{run_id}</b>" + (f" - {_html.escape(net)}" if net else "")]
+        if obs:
+            lines.append("<i>Observations by the publisher:</i>")
+            lines += [f"&nbsp;&nbsp;{_html.escape(o['author'])}: {_html.escape(o['text'])}" for o in obs]
         if not reviews:
-            self.history.setText(f"<b>{run_id}</b>: no reviews yet (unreviewed).")
+            lines.append("No reviews yet (unreviewed).")
+            self.history.setText("<br>".join(lines))
             return
-        lines = [f"<b>{run_id}</b>:"]
+        lines.append("<i>Reviews:</i>")
         for r in reviews:
             color = REVIEW_COLORS.get(r["decision"], "#2b2b2b")
             lines.append(f"<span style='color:{color}'><b>{r['decision'].replace('_', ' ')}</b></span> by "
@@ -341,7 +360,16 @@ class SharePage(QWidget):
             return
         run = RunDir(self.ctx.workspace.runs_dir / run_id)
         store, user = self.store, self.settings().user_name()
-        self._run("Publish run", lambda: store.publish_run(run, user=user, progress=self._progress.message.emit))
+        from ..training.model_card import read_notes
+
+        note = self.publish_note.toPlainText().strip()
+        if not note and not read_notes(run):
+            self.ctx.error(self, "Publish run", "Write your observations first: what did you check, and what is this "
+                                                "model good (or not good) for?")
+            return
+        self._run("Publish run", lambda: store.publish_run(run, user=user, progress=self._progress.message.emit,
+                                                          note=note or None),
+                  lambda _r: self.publish_note.clear())
 
     def download_dataset(self) -> None:
         dataset_id = self._selected(self.datasets)

@@ -190,6 +190,14 @@ one class: area fraction, number of features, and how different the size and ori
 (Kolmogorov-Smirnov distance, 0 = identical). The calculations are HydrideSegmentation's own; the tab says so and
 asks for that package if it is not installed. Enter micrometres per pixel to get physical sizes.</p>
 
+<h3>Observations and the model card</h3>
+<p>In step 4, the <b>Observations</b> tab keeps your notes about a run (what you checked, what works, what does not).
+Notes are never edited or deleted - add a new one to correct an earlier one. Every finished run also has a
+<code>model_card.json</code>: network, classes, input and preprocessing, training data and its annotation provenance,
+all settings, software and computer, results, run check, observations and the checkpoint fingerprint. Publishing
+requires at least one observation; notes and the model card are published with the run, and predictions record
+which model card produced them.</p>
+
 <h3>Working with colleagues (6 Share)</h3>
 <ul>
 <li>Enter the shared office folder once (an administrator initialises a new one with <i>Initialise new shared

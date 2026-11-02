@@ -91,6 +91,9 @@ def predict_folder(run: RunDir, input_folder: Path, output_folder: Path, checkpo
             "checkpoint": f"checkpoints/{checkpoint}.pt",
             "checkpoint_sha256": sha256_file(ckpt_path),
             "checkpoint_epoch": meta.get("epoch"),
+            "architecture": model.cfg.architecture,
+            "model_card_sha256": (sha256_file(run.root / "model_card.json")
+                                  if (run.root / "model_card.json").exists() else None),
             "dataset_id": meta.get("dataset_id"),
             "class_map": class_map.to_dict(),
             "preprocess": prep.to_dict(),
