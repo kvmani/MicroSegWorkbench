@@ -9,6 +9,8 @@ from pathlib import Path
 from typing import Any
 
 
+import numpy as np
+
 from .core.augment import AugmentConfig
 from .core.dataset import DatasetVersion, create_dataset_version, list_dataset_versions, validate_folder
 from .core.imageio import encode_png, load_image, load_mask_values, to_unit_float
@@ -148,6 +150,46 @@ def cmd_card(args: argparse.Namespace) -> int:
         print("This run has no trained model yet.", file=sys.stderr)
         return 1
     print(json.dumps(write_model_card(run), indent=2))
+    return 0
+
+
+def cmd_compare_image(args: argparse.Namespace) -> int:
+    from .core.dataset import DatasetVersion
+    from .core.imageio import encode_png
+    from .core.render import tile_grid, thumbnail
+    from .training.multi_predict import CompareError, compare_models_on_image, load_truth, render_comparison
+    from .training.runs import RunDir
+
+    ws = _ws(args)
+    runs = [RunDir(ws.runs_dir / r) for r in args.runs]
+    truth = truth_map = None
+    if args.mask:
+        if not args.dataset:
+            print("--mask needs --dataset (to know the classes)", file=sys.stderr)
+            return 1
+        truth_map = DatasetVersion.open(ws.datasets_dir / args.dataset).class_map
+        truth = load_truth(Path(args.mask), truth_map)
+    try:
+        result = compare_models_on_image(runs, Path(args.image), truth, truth_map, device=args.device)
+    except (CompareError, ValueError, FileNotFoundError) as exc:
+        print(f"Cannot compare: {exc}", file=sys.stderr)
+        return 1
+    for m in result["models"]:
+        met = m.get("metrics") or {}
+        fg = met.get("mean_iou_foreground")
+        fr = ", ".join(f"{k} {100 * v:.1f}%" for k, v in m["fractions"].items())
+        print(f"{m['run_id']} [{m['network']}] {m['seconds']:.2f}s  {fr}" + (f"  feature IoU {fg:.3f}" if fg is not None else ""))
+    if result["agreement"] and len(result["models"]) > 1:
+        print("Pixel agreement between models (row vs column):")
+        for m, row in zip(result["models"], result["agreement"]):
+            print(f"  {m['run_id']}: " + "  ".join(f"{100 * a:.1f}%" for a in row))
+    if args.out:
+        tiles = [thumbnail(rgb, 512) for _c, rgb in render_comparison(result, truth)]
+        h = max(t.shape[0] for t in tiles)
+        tiles = [np.pad(t, ((0, h - t.shape[0]), (0, 0), (0, 0)), constant_values=255) for t in tiles]
+        Path(args.out).write_bytes(encode_png(tile_grid(tiles, columns=min(4, len(tiles)))))
+        print(f"Side-by-side image written to {args.out} (image | ground truth | models ... | disagreement)")
+    print("Predictions are UNREVIEWED.")
     return 0
 
 
@@ -583,6 +625,14 @@ def build_parser() -> argparse.ArgumentParser:
     s = sub.add_parser("card", help="write and show the run's model card (metadata and provenance)")
     s.add_argument("run")
     s.set_defaults(func=cmd_card)
+    s = sub.add_parser("compare-image", help="run several trained models on one image and compare them")
+    s.add_argument("image")
+    s.add_argument("runs", nargs="+")
+    s.add_argument("--mask", help="ground-truth mask for scores (needs --dataset)")
+    s.add_argument("--dataset", help="dataset version whose classes the mask uses")
+    s.add_argument("--out", help="write a side-by-side PNG")
+    s.add_argument("--device", default="cpu", choices=("cpu", "cuda"))
+    s.set_defaults(func=cmd_compare_image)
     s = sub.add_parser("check-run", help="plain-language diagnosis of a finished run")
     s.add_argument("run")
     s.set_defaults(func=cmd_check_run)

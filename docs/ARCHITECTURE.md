@@ -275,3 +275,10 @@ diagnostics, observations, checkpoint SHA-256 and usage. Publishing a run requir
 publish note is stored as kind `publication`); `notes.jsonl` and `model_card.json` are published files and the record
 carries the observations and the card's key sections, so colleagues see them without downloading. Predictions record
 the model card's SHA-256.
+
+### AD-27 Same image, several models
+`training/multi_predict.compare_models_on_image` loads each run's best checkpoint, applies that model's own
+preprocessing and maps predictions back to the full image as class values (255 = not analysed by that model).
+Scores against a ground-truth mask are computed only for models whose class list equals the mask's, on pixels analysed
+by every model (fair comparison). Pairwise agreement and a disagreement mask are computed when all models share
+classes. Used by the Compare page tab and `msw compare-image`.

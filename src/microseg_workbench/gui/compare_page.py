@@ -7,14 +7,14 @@ from pathlib import Path
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QPixmap
 from PySide6.QtWidgets import (
-    QComboBox, QFileDialog, QHBoxLayout, QLabel, QListWidget, QListWidgetItem, QPushButton, QSplitter, QTableWidget,
+    QGridLayout, QScrollArea, QComboBox, QFileDialog, QHBoxLayout, QLabel, QListWidget, QListWidgetItem, QPushButton, QSplitter, QTableWidget,
     QTableWidgetItem, QTabWidget, QVBoxLayout, QWidget,
 )
 
 from ..training.compare import comparison_csv, compare_runs
 from ..training.runs import RunDir, list_runs
 from .context import AppContext
-from .widgets import SERIES_COLORS, ImageView, LineChart, hint
+from .widgets import SERIES_COLORS, ImageView, LineChart, hint, run_background
 
 HELP = ("<b>Step 5 - Compare.</b> Tick two or more runs to see their settings and scores side by side. Only the "
         "settings that differ are listed. Test scores are comparable only between runs on the <i>same dataset "
@@ -67,6 +67,8 @@ class ComparePage(QWidget):
         tabs.addTab(self.diff, "What differs")
         tabs.addTab(self.chart, "Validation curves")
         tabs.addTab(overlays, "Test predictions")
+        tabs.addTab(self._build_same_image_tab(), "Same image, several models")
+        self.compare_tabs = tabs
 
         left = QWidget()
         lv = QVBoxLayout(left)
@@ -91,6 +93,165 @@ class ComparePage(QWidget):
         layout.addWidget(splitter, 1)
         ctx.runs_changed.connect(self.refresh)
         self.refresh()
+
+    # ---- same image, several models -----------------------------------------------------------------------
+    def _build_same_image_tab(self) -> QWidget:
+        tab = QWidget()
+        lay = QVBoxLayout(tab)
+        lay.addWidget(QLabel("Run every ticked model on one image and look at the results side by side. Pick an image "
+                             "from a dataset version (its mask is then used as ground truth) or any image file."))
+        src = QHBoxLayout()
+        self.si_dataset = QComboBox()
+        self.si_dataset.currentIndexChanged.connect(self._si_load_samples)
+        self.si_sample = QComboBox()
+        pick_file = QPushButton("Other image file...")
+        pick_file.clicked.connect(self._si_pick_file)
+        self.si_run_btn = QPushButton("Run ticked models on this image")
+        self.si_run_btn.clicked.connect(self.run_same_image)
+        src.addWidget(QLabel("Dataset version:"))
+        src.addWidget(self.si_dataset, 2)
+        src.addWidget(QLabel("Image:"))
+        src.addWidget(self.si_sample, 1)
+        src.addWidget(pick_file)
+        src.addWidget(self.si_run_btn)
+        lay.addLayout(src)
+        self.si_file: Path | None = None
+        self.si_busy = False
+        self.si_result: dict | None = None
+        self.si_note = QLabel("")
+        self.si_note.setWordWrap(True)
+        lay.addWidget(self.si_note)
+        grid_host = QWidget()
+        self.si_grid = QGridLayout(grid_host)
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setWidget(grid_host)
+        lay.addWidget(scroll, 3)
+        self.si_table = QTableWidget(0, 0)
+        self.si_table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
+        lay.addWidget(self.si_table, 1)
+        self.ctx.datasets_changed.connect(self._si_fill_datasets)
+        self._si_fill_datasets()
+        return tab
+
+    def _si_fill_datasets(self) -> None:
+        from ..core.dataset import list_dataset_versions
+
+        self.si_dataset.blockSignals(True)
+        self.si_dataset.clear()
+        for v in list_dataset_versions(self.ctx.workspace.datasets_dir):
+            self.si_dataset.addItem(v.dataset_id, v.dataset_id)
+        self.si_dataset.blockSignals(False)
+        self._si_load_samples()
+
+    def _si_load_samples(self) -> None:
+        from ..core.dataset import DatasetVersion
+
+        self.si_sample.clear()
+        dataset_id = self.si_dataset.currentData()
+        if dataset_id:
+            version = DatasetVersion.open(self.ctx.workspace.datasets_dir / dataset_id)
+            for s in sorted(version.samples(), key=lambda s: (s["split"] != "test", s["stem"])):
+                self.si_sample.addItem(f"{s['stem']} ({s['split']})", s["stem"])
+        self.si_file = None
+
+    def _si_pick_file(self) -> None:
+        from PySide6.QtWidgets import QFileDialog
+
+        path = QFileDialog.getOpenFileName(self, "Image to segment", "",
+                                           "Images (*.png *.tif *.tiff *.jpg *.jpeg *.bmp)")[0]
+        if path:
+            self.use_image_file(Path(path))
+
+    def use_image_file(self, path: Path) -> None:
+        self.si_file = path
+        self.si_note.setText(f"Image file: {path} (no ground truth).")
+
+    def run_same_image(self) -> None:
+        from ..core.dataset import DatasetVersion
+        from ..training.multi_predict import compare_models_on_image, load_truth
+
+        ids = self.checked_ids()[:6]
+        if not ids:
+            self.ctx.error(self, "Same image", "Tick one or more trained runs on the left first.")
+            return
+        runs = [RunDir(self.ctx.workspace.runs_dir / r) for r in ids]
+        truth = truth_map = None
+        if self.si_file is not None:
+            image_path = self.si_file
+        else:
+            dataset_id, stem = self.si_dataset.currentData(), self.si_sample.currentData()
+            if not dataset_id or not stem:
+                self.ctx.error(self, "Same image", "Choose a dataset image or an image file.")
+                return
+            version = DatasetVersion.open(self.ctx.workspace.datasets_dir / dataset_id)
+            sample = next(s for s in version.samples() if s["stem"] == stem)
+            image_path = version.image_path(sample)
+            truth_map = version.class_map
+            truth = load_truth(version.mask_path(sample), truth_map)
+        self.si_busy = True
+        self.si_run_btn.setEnabled(False)
+        self.si_note.setText(f"Running {len(runs)} model(s)...")
+
+        def done(result: dict) -> None:
+            self.si_busy = False
+            self.si_run_btn.setEnabled(True)
+            self.si_result = result
+            self._si_show(result, truth)
+
+        def failed(message: str, details: str) -> None:
+            self.si_busy = False
+            self.si_run_btn.setEnabled(True)
+            self.si_note.setText(f"<span style='color:#b42318'>{message}</span>")
+            self.ctx.error(self, "Same image", message, details)
+
+        run_background(lambda: compare_models_on_image(runs, image_path, truth, truth_map), done, failed)
+
+    def _si_show(self, result: dict, truth) -> None:
+        from ..training.multi_predict import render_comparison
+
+        while self.si_grid.count():
+            w = self.si_grid.takeAt(0).widget()
+            if w is not None:
+                w.hide()
+                w.deleteLater()
+        tiles = render_comparison(result, truth)
+        cols = 4
+        for i, (caption, rgb) in enumerate(tiles):
+            box = QWidget()
+            bl = QVBoxLayout(box)
+            view = ImageView()
+            view.setMinimumSize(220, 220)
+            view.set_array(rgb)
+            cap = QLabel(caption.replace("\n", "<br>"))
+            cap.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            bl.addWidget(view, 1)
+            bl.addWidget(cap)
+            self.si_grid.addWidget(box, i // cols, i % cols)
+        models = result["models"]
+        names = sorted({n for m in models for n in m["fractions"]})
+        has_truth = any(m.get("metrics") for m in models)
+        headers = ["Model", "Network", "Seconds"] + [f"{n} %" for n in names]
+        if has_truth:
+            headers += ["Feature IoU (this image)"] + [f"IoU {n}" for n in names]
+        self.si_table.setColumnCount(len(headers))
+        self.si_table.setHorizontalHeaderLabels(headers)
+        self.si_table.setRowCount(len(models))
+        for r, m in enumerate(models):
+            row = [m["run_id"], m["network"], f"{m['seconds']:.2f}"] + \
+                  [f"{100 * m['fractions'].get(n, 0):.2f}" for n in names]
+            if has_truth:
+                met = m.get("metrics") or {}
+                per = {c["name"]: c["iou"] for c in met.get("per_class", [])}
+                row += [_cell(met.get("mean_iou_foreground"))] + [_cell(per.get(n)) for n in names]
+            for c, v in enumerate(row):
+                self.si_table.setItem(r, c, QTableWidgetItem(v))
+        self.si_table.resizeColumnsToContents()
+        notes = [] if result["same_classes"] else ["The models use different classes; agreement is not computed."]
+        if result["agreement"] is not None and len(models) == 2:
+            notes.append(f"The two models agree on {100 * result['agreement'][0][1]:.1f}% of pixels.")
+        notes.append("Predictions are unreviewed.")
+        self.si_note.setText(" ".join(notes))
 
     def refresh(self) -> None:
         checked = set(self.checked_ids())

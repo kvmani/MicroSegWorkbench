@@ -49,6 +49,7 @@ Workspace folder (datasets and runs) defaults to `~/MicroSegWorkbench-workspace`
 | `msw note RUN "text"` / `msw card RUN` | Add/list observations; write and show the model card (metadata, provenance) |
 | `msw check-run RUN` | Plain-language diagnosis: overfitting, under-training, missed classes, ... |
 | `msw report RUN` | Self-contained HTML report (scores, curves, overlays, settings, provenance) |
+| `msw compare-image IMAGE RUN RUN... [--mask M --dataset D] [--out f.png]` | Several models on one image, side by side |
 | `msw compare RUN RUN... [--csv f]` | Compare runs (warns if test sets differ) |
 | `msw predict RUN FOLDER --out NEW` | Segment new images (masks, overlays, predictions.json) |
 | `msw architectures` | Available networks (U-Net, SegFormer-lite, plugins) |

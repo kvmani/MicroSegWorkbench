@@ -613,3 +613,39 @@ def test_network_choice_reaches_training(app, tmp_path):
     wait_until(app, lambda: train.estimate is not None and not train.estimating)
     assert "SegFormer" in train.summary_card.text()
     win.close()
+
+
+def test_same_image_several_models_tab(app, tmp_path):
+    from microseg_workbench.core.augment import AugmentConfig
+    from microseg_workbench.core.dataset import create_dataset_version, validate_folder
+    from microseg_workbench.core.splits import DEFAULT_GROUP_REGEX, SplitConfig
+    from microseg_workbench.core.synthetic import SyntheticSpec, write_synthetic_dataset
+    from microseg_workbench.gui.app import MainWindow
+    from microseg_workbench.training.config import TrainConfig
+    from microseg_workbench.training.trainer import run_training
+
+    write_synthetic_dataset(tmp_path / "data", SyntheticSpec(specimens=3, images_per_specimen=2, size=64))
+    ws = Workspace(tmp_path / "ws").ensure()
+    v = create_dataset_version(validate_folder(tmp_path / "data", DEFAULT_GROUP_REGEX), SplitConfig(),
+                               ws.datasets_dir, "d")
+    for arch in ("unet", "segformer"):
+        run_training(TrainConfig(dataset_id=v.dataset_id, architecture=arch, epochs=1, base_channels=4, depth=2,
+                                 patches_per_image=1, device="cpu", augment=AugmentConfig(patch_size=32)), ws,
+                     run_id=arch)
+    win = MainWindow(ws, interactive=False)
+    cmp = win.compare_page
+    cmp.refresh()
+    cmp.run_same_image()  # nothing ticked
+    assert "Tick one or more" in win.ctx.last_error
+    cmp.set_checked(["unet", "segformer"])
+    assert cmp.si_sample.currentText().endswith("(test)")  # test images listed first
+    cmp.run_same_image()
+    wait_until(app, lambda: not cmp.si_busy)
+    assert cmp.si_result and cmp.si_grid.count() == 5  # image, truth, two models, disagreement
+    assert cmp.si_table.rowCount() == 2 and "Feature IoU (this image)" in [
+        cmp.si_table.horizontalHeaderItem(c).text() for c in range(cmp.si_table.columnCount())]
+    cmp.use_image_file(v.image_path(v.samples()[0]))  # any image file, no ground truth
+    cmp.run_same_image()
+    wait_until(app, lambda: not cmp.si_busy)
+    assert cmp.si_grid.count() == 4
+    win.close()

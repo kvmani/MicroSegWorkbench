@@ -175,6 +175,14 @@ appears and their test scores must not be ranked.</p>
 to train several runs that differ only in their seed; tick them in <b>5 Compare</b> to see the mean and spread of
 the test scores. Only differences larger than that spread should be trusted.</p>
 
+<h3>Same image, several models</h3>
+<p>In <b>5 Compare</b>, tick the runs (models) to compare, open <i>Same image, several models</i>, choose an image from a
+dataset version (its mask is used as ground truth) or any image file, and press <i>Run ticked models on this image</i>.
+You see each model's segmentation next to the image and the ground truth, a map of where the models disagree, and a
+table with class fractions, time and - with ground truth - each model's scores on this image. Models with different
+networks, presets or training data can be compared this way. Command line: <code>msw compare-image IMAGE RUN RUN ...
+[--mask MASK --dataset DATASET] [--out side.png]</code>.</p>
+
 <h3>Segmenting new images</h3>
 <p>In <b>4 Results</b>, select a run and press <i>Segment new images...</i>. Choose a folder of micrographs and a new
 output folder; each image gets a mask (<code>_pred_mask.png</code>, original class values), an overlay and an entry in
