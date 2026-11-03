@@ -244,6 +244,7 @@ def test_share_page_two_colleagues(app, tmp_path):
     bob_results.refresh()
     assert "APPROVED" in bob_results.banner.text() and "bob" in bob_results.banner.text()
     assert "APPROVED by bob" in bob_results.card_view.toPlainText()  # card tab agrees with the banner
+    assert "unreviewed" not in bob_results.details.text().lower()
     bob_results.result_tabs.setCurrentIndex(bob_results.result_tabs.count() - 1)
     card = bob_results.card_view.toPlainText()
     assert "U-Net" in card and version.dataset_id in card and "Checkpoint SHA-256" in card

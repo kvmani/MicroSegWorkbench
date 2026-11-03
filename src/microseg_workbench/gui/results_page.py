@@ -206,7 +206,8 @@ class ResultsPage(QWidget):
         report = json.loads(evaluation_path.read_text()) if evaluation_path.exists() else None
         self.banner.setText(self._review_banner(run) if report else "")
         lines = [
-            f"<b>State:</b> {run.state()} - {status.get('message', '')}"
+            # the review banner above is the authoritative review status; the run's own message predates any review
+            f"<b>State:</b> {run.state()} - {status.get('message', '').replace(' Results are unreviewed.', '')}"
             + (" <i>This run can be resumed.</i>" if run.resumable() else ""),
             f"<b>Dataset:</b> {info.get('dataset', {}).get('dataset_id')} &nbsp; <b>Preset:</b> {cfg.get('preset')} "
             f"&nbsp; <b>Epochs:</b> {cfg.get('epochs')} &nbsp; <b>Seed:</b> {cfg.get('seed')}",

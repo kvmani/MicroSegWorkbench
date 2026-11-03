@@ -271,7 +271,7 @@ class ComparePage(QWidget):
         self.runs.blockSignals(True)
         self.runs.clear()
         for run in list_runs(self.ctx.workspace.runs_dir):
-            item = QListWidgetItem(f"{run.run_id}  ({run.state()}, {network_name(run)})")
+            item = QListWidgetItem(f"{run.run_id}\n   {run.state()} - {network_name(run)}")
             item.setData(256, str(run.root))
             item.setFlags(item.flags() | Qt.ItemFlag.ItemIsUserCheckable)
             item.setCheckState(Qt.CheckState.Checked if run.run_id in checked else Qt.CheckState.Unchecked)

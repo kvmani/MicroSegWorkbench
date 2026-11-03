@@ -80,7 +80,8 @@ publishes; bob reviews; carol downloads and segments new images; dave's dataset 
 now fixed with regression tests: stale "This run" card (dropped estimate refresh; card describing a network other
 than the started one), step 3 "Ready to train" while Start was blocked, clipped dataset-check text, Model card tab
 not refreshed / raw floats / dict / review status disagreeing with the banner, run lists without network names,
-same-image comparison tile wrapping. GUI + library tests: 27 passed (Linux, offscreen). The deck itself is a
+same-image comparison tile wrapping, a stale "Results are unreviewed" line under an APPROVED banner. Full suite
+195 passed, 5 skipped (Linux, offscreen). The deck itself is a
 deliverable outside the repository (generated from screenshots; not committed).
 
 ## Current objective
