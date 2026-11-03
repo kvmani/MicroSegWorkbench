@@ -70,7 +70,9 @@ def step_statuses(window) -> list[StepStatus]:
     elif completed:
         out.append(StepStatus(DONE, f"{completed} finished run(s)."))
     else:
-        out.append(StepStatus(TODO, "Ready to train."))
+        blocks = [text for level, text in window.readiness() if level == "block"]
+        out.append(StepStatus(ATTENTION, f"Cannot start yet: {blocks[0]}") if blocks
+                   else StepStatus(TODO, "Ready to train."))
 
     resumable = sum(1 for r in runs if r.resumable())
     if not runs:

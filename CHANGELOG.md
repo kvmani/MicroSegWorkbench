@@ -1,6 +1,12 @@
 # Changelog
 
 ## Unreleased (0.4.0)
+- Fixes found while preparing the beginner's guide: the "This run" card could show settings or a network other
+  than the ones selected or started (an estimate requested while another was running was dropped); step 3 said
+  "Ready to train" while a red dataset-check item blocked Start; the dataset-check text after creating a version
+  could be cut off; the Model card tab did not update after adding an observation, showed raw floats and a Python
+  dict, and said "unreviewed" for a model approved on the shared folder; run lists now name the network; the
+  same-image comparison shows all five tiles on one row with fixed 4-decimal scores.
 - Fetch and run trained models: `msw models` (here and on the shared folder, approved first); `msw predict` downloads
   a shared model automatically; Share page *Download and segment images...*; Results *Model card* tab.
 - Input checks: runs record the training images' bit depth and brightness range; prediction and model comparison

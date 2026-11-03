@@ -161,11 +161,14 @@ class ResultsPage(QWidget):
         self.refresh()
 
     def refresh(self) -> None:
+        from .compare_page import network_name
+
         current = self.runs.currentItem().data(256) if self.runs.currentItem() else None
         self.runs.clear()
         for run in list_runs(self.ctx.workspace.runs_dir):
             state = run.state()
-            item = QListWidgetItem(f"{run.run_id}\n   {state} - {run.info().get('dataset', {}).get('dataset_id', '?')}")
+            item = QListWidgetItem(f"{run.run_id}\n   {state} - {network_name(run)} - "
+                                   f"{run.info().get('dataset', {}).get('dataset_id', '?')}")
             item.setData(256, str(run.root))
             self.runs.addItem(item)
             if str(run.root) == current:
@@ -271,12 +274,14 @@ class ResultsPage(QWidget):
                          f"{inp.get('normalization')}, resize x{inp.get('resize_factor')}, border "
                          f"{inp.get('exclude_border')}"),
             row("Training image brightness", f"{bright.get('min', 0):.2f}-{bright.get('max', 0):.2f}" if bright else "-"),
-            row("Training data", f"{data.get('dataset_id')} {data.get('split_counts')}"),
+            row("Training data", f"{data.get('dataset_id')} - " + ", ".join(
+                f"{label} {(data.get('split_counts') or {}).get(key, 0)}"
+                for key, label in (("train", "training"), ("val", "validation"), ("test", "test")))),
             row("Annotation source", ((data.get("annotation_source") or {}).get("tool") or {}).get("id", "folder")
                 + (" - contains unapproved masks" if data.get("contains_unapproved_annotations") else "")),
-            row("Test results", f"{res.get('split')}: mean IoU {res.get('mean_iou')}, feature IoU "
-                                f"{res.get('mean_iou_foreground')}"),
-            row("Review", c["review_status"]),
+            row("Test results", f"{res.get('split')} split: mean IoU {_f4(res.get('mean_iou'))}, feature IoU "
+                                f"{_f4(res.get('mean_iou_foreground'))}"),
+            row("Review", _plain(self._review_banner(run))),
             row("Software", f"{(c['training'].get('tool') or {}).get('id')} {(c['training'].get('tool') or {}).get('version')}"
                             f", torch {(c['training'].get('environment') or {}).get('torch')}"),
             row("Checkpoint SHA-256", (c["checkpoint"] or {}).get("sha256")),
@@ -311,6 +316,7 @@ class ResultsPage(QWidget):
             return
         self.note_edit.clear()
         self._show_notes(run)
+        self._show_card(run)
         self.ctx.status_message.emit(f"Observation saved with {run.run_id}.")
 
     def export_report(self) -> None:
@@ -453,3 +459,14 @@ class ResultsPage(QWidget):
             self.ctx.error(self, "Feature statistics", message, details)
 
         run_background(lambda: analyse_run(run.root, datasets_dir, cls, um), done, failed)
+
+
+def _f4(value: object) -> str:
+    return f"{value:.4f}" if isinstance(value, (int, float)) else "-"
+
+
+def _plain(html_text: str) -> str:
+    import html as _html
+    import re
+
+    return _html.unescape(re.sub(r"<[^>]+>", "", html_text)).replace("\u2713", "").replace("\u26a0", "").strip()

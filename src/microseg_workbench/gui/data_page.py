@@ -154,7 +154,6 @@ class DataPage(QWidget):
         form.addRow(self.split_view)
         form.addRow(self.split_preview)
         form.addRow(self.create_btn)
-        form.addRow(self.result)
         self.form = form
         self.set_advanced(ctx.advanced)
         ctx.mode_changed.connect(self.set_advanced)
@@ -179,6 +178,7 @@ class DataPage(QWidget):
         orow.addStretch(1)
         rv.addLayout(orow)
         rv.addWidget(split_box)
+        rv.addWidget(self.result)  # outside the form: wrapped labels in a form layout get clipped
         splitter = QSplitter()
         splitter.addWidget(left)
         splitter.addWidget(right)

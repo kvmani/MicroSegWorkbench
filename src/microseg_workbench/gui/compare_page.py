@@ -28,6 +28,16 @@ ROWS = [("Dataset version", "dataset_id"), ("State", "state"), ("Preset", "prese
         ("Test pixel accuracy", "test_pixel_accuracy")]
 
 
+def _score(v) -> str:
+    return "n/a" if v is None else f"{v:.4f}"
+
+
+def network_name(run: RunDir) -> str:
+    """Short network name for run lists, e.g. 'U-Net' or 'SegFormer-lite'."""
+    title = run.info().get("model", {}).get("architecture_title") or "U-Net (convolutional)"
+    return title.split(" (")[0]
+
+
 def _cell(v) -> str:
     if v is None:
         return "n/a"
@@ -216,12 +226,12 @@ class ComparePage(QWidget):
                 w.hide()
                 w.deleteLater()
         tiles = render_comparison(result, truth)
-        cols = 4
+        cols = min(len(tiles), 5)  # image, truth, two models and the disagreement map fit on one row
         for i, (caption, rgb) in enumerate(tiles):
             box = QWidget()
             bl = QVBoxLayout(box)
             view = ImageView()
-            view.setMinimumSize(220, 220)
+            view.setMinimumSize(*((170, 170) if cols == 5 else (220, 220)))
             view.set_array(rgb)
             cap = QLabel(caption.replace("\n", "<br>"))
             cap.setAlignment(Qt.AlignmentFlag.AlignCenter)
@@ -243,7 +253,7 @@ class ComparePage(QWidget):
             if has_truth:
                 met = m.get("metrics") or {}
                 per = {c["name"]: c["iou"] for c in met.get("per_class", [])}
-                row += [_cell(met.get("mean_iou_foreground"))] + [_cell(per.get(n)) for n in names]
+                row += [_score(met.get("mean_iou_foreground"))] + [_score(per.get(n)) for n in names]
             for c, v in enumerate(row):
                 self.si_table.setItem(r, c, QTableWidgetItem(v))
         self.si_table.resizeColumnsToContents()
@@ -261,7 +271,7 @@ class ComparePage(QWidget):
         self.runs.blockSignals(True)
         self.runs.clear()
         for run in list_runs(self.ctx.workspace.runs_dir):
-            item = QListWidgetItem(f"{run.run_id}  ({run.state()})")
+            item = QListWidgetItem(f"{run.run_id}  ({run.state()}, {network_name(run)})")
             item.setData(256, str(run.root))
             item.setFlags(item.flags() | Qt.ItemFlag.ItemIsUserCheckable)
             item.setCheckState(Qt.CheckState.Checked if run.run_id in checked else Qt.CheckState.Unchecked)

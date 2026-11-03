@@ -86,6 +86,9 @@ def test_full_workflow(app, tmp_path):
     res.note_edit.setPlainText("Pore boundaries a bit soft.")
     res.add_observation()
     assert "Pore boundaries" in res.notes_view.text() and not res.note_edit.toPlainText()
+    card = res.card_view.toPlainText()  # the card tab follows the new observation
+    assert "Observations\t1" in card or "Observations 1" in card.replace("\n", " ")
+    assert "{'" not in card and "training " in card
     res.export_report()
     assert res.last_report is not None and "UNREVIEWED" in res.last_report.read_text(encoding="utf-8")
     win.close()
@@ -240,6 +243,7 @@ def test_share_page_two_colleagues(app, tmp_path):
     bob_results = bob_win.results_page
     bob_results.refresh()
     assert "APPROVED" in bob_results.banner.text() and "bob" in bob_results.banner.text()
+    assert "APPROVED by bob" in bob_results.card_view.toPlainText()  # card tab agrees with the banner
     bob_results.result_tabs.setCurrentIndex(bob_results.result_tabs.count() - 1)
     card = bob_results.card_view.toPlainText()
     assert "U-Net" in card and version.dataset_id in card and "Checkpoint SHA-256" in card
@@ -656,14 +660,101 @@ def test_same_image_several_models_tab(app, tmp_path):
     cmp.run_same_image()  # nothing ticked
     assert "Tick one or more" in win.ctx.last_error
     cmp.set_checked(["unet", "segformer"])
+    labels = [cmp.runs.item(i).text() for i in range(cmp.runs.count())]
+    assert any("SegFormer-lite" in t for t in labels) and any("U-Net" in t for t in labels)  # networks named
     assert cmp.si_sample.currentText().endswith("(test)")  # test images listed first
     cmp.run_same_image()
     wait_until(app, lambda: not cmp.si_busy)
     assert cmp.si_result and cmp.si_grid.count() == 5  # image, truth, two models, disagreement
+    assert {cmp.si_grid.getItemPosition(i)[0] for i in range(5)} == {0}  # all on one row
     assert cmp.si_table.rowCount() == 2 and "Feature IoU (this image)" in [
         cmp.si_table.horizontalHeaderItem(c).text() for c in range(cmp.si_table.columnCount())]
     cmp.use_image_file(v.image_path(v.samples()[0]))  # any image file, no ground truth
     cmp.run_same_image()
     wait_until(app, lambda: not cmp.si_busy)
     assert cmp.si_grid.count() == 4
+    win.close()
+
+
+def test_estimate_follows_settings_changed_while_estimating(app, tmp_path):
+    from microseg_workbench.core.dataset import create_dataset_version, validate_folder
+    from microseg_workbench.core.splits import DEFAULT_GROUP_REGEX, SplitConfig
+    from microseg_workbench.core.synthetic import SyntheticSpec, write_synthetic_dataset
+    from microseg_workbench.gui.app import MainWindow
+
+    write_synthetic_dataset(tmp_path / "data", SyntheticSpec(specimens=3, images_per_specimen=2, size=64))
+    ws = Workspace(tmp_path / "ws").ensure()
+    create_dataset_version(validate_folder(tmp_path / "data", DEFAULT_GROUP_REGEX), SplitConfig(),
+                           ws.datasets_dir, "d")
+    win = MainWindow(ws, interactive=False)
+    train = win.train_page
+    train.device.setCurrentIndex(train.device.findData("cpu"))
+    train.epochs.setValue(3)
+    train.refresh_estimate()
+    assert train.estimating
+    train.epochs.setValue(7)  # changed while the first estimate is still running
+    train.refresh_estimate()
+    wait_until(app, lambda: train.estimate is not None and not train.estimating)
+    assert train.estimate["epochs"] == 7 and "7 epochs" in train.summary_card.text()
+    win.close()
+
+
+def test_run_card_matches_the_started_run(app, tmp_path):
+    from microseg_workbench.core.dataset import create_dataset_version, validate_folder
+    from microseg_workbench.core.splits import DEFAULT_GROUP_REGEX, SplitConfig
+    from microseg_workbench.core.synthetic import SyntheticSpec, write_synthetic_dataset
+    from microseg_workbench.gui.app import MainWindow
+
+    write_synthetic_dataset(tmp_path / "data", SyntheticSpec(specimens=3, images_per_specimen=2, size=64))
+    ws = Workspace(tmp_path / "ws").ensure()
+    create_dataset_version(validate_folder(tmp_path / "data", DEFAULT_GROUP_REGEX), SplitConfig(),
+                           ws.datasets_dir, "d")
+    win = MainWindow(ws, interactive=False)
+    train = win.train_page
+    train.device.setCurrentIndex(train.device.findData("cpu"))
+    train.epochs.setValue(2)
+    train.network.setCurrentIndex(train.network.findData("segformer"))
+    train.refresh_estimate()
+    wait_until(app, lambda: train.estimate is not None and not train.estimating)
+    assert "SegFormer" in train.summary_card.text()
+    train.network.setCurrentIndex(train.network.findData("unet"))  # changed, then Start before a new estimate
+    train.start()
+    assert "U-Net" in train.summary_card.text() and "SegFormer" not in train.summary_card.text()
+    wait_until(app, lambda: train.final_state is not None, timeout=300)
+    assert "SegFormer" not in train.summary_card.text()
+    win.close()
+
+
+def test_blocked_dataset_is_explained_everywhere(app, tmp_path):
+    import numpy as np
+    from PIL import Image
+
+    from microseg_workbench.core.synthetic import SyntheticSpec, write_synthetic_dataset
+    from microseg_workbench.gui.app import MainWindow
+    from microseg_workbench.gui.workflow import ATTENTION
+
+    folder = tmp_path / "data"
+    write_synthetic_dataset(folder, SyntheticSpec(specimens=5, images_per_specimen=2, size=64, seed=5))
+    for m in folder.glob("*_mask.png"):  # pores only in S03
+        if not m.name.startswith("S03"):
+            arr = np.asarray(Image.open(m)).copy()
+            arr[arr == 2] = 0
+            Image.fromarray(arr).save(m)
+    win = MainWindow(Workspace(tmp_path / "ws"), interactive=False)
+    win.resize(1440, 900)
+    win.show()
+    data = win.data_page
+    data.folder.setText(str(folder))
+    data.check_folder()
+    wait_until(app, lambda: data.report is not None and data.report.ok and not data.busy)
+    data.seed.setValue(1)  # S03 lands outside the training split
+    data.create_version()
+    wait_until(app, lambda: data.last_version_id is not None and not data.busy)
+    app.processEvents()
+    assert "does not occur in any training image" in data.result.text()
+    assert data.result.height() >= data.result.heightForWidth(data.result.width())  # not clipped
+    win.go_to(2)
+    win.refresh_status()
+    assert not win.train_page.start_btn.isEnabled()
+    assert win.statuses[2].state == ATTENTION and "Cannot start yet" in win.step_state.text()
     win.close()

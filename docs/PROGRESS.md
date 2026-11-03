@@ -73,6 +73,16 @@ recorded before publishing; easy fetch-and-run of trained models; complete metad
 - Gaps: SegFormer-lite has no pretrained weights (offline; trains from scratch, needs more data/epochs); input
   checks cover bit depth and brightness only (not pixel size or contrast); not yet tried by real users.
 
+## Beginner's guide deck and the fixes it uncovered — 2026-11-03
+Owner asked for a beginner's slide deck (owner's black-ribbon style) with screenshots from simulated data and a
+simulated network drive. Driving the real app through that scenario (alice trains U-Net and SegFormer-lite,
+publishes; bob reviews; carol downloads and segments new images; dave's dataset is blocked) exposed GUI defects,
+now fixed with regression tests: stale "This run" card (dropped estimate refresh; card describing a network other
+than the started one), step 3 "Ready to train" while Start was blocked, clipped dataset-check text, Model card tab
+not refreshed / raw floats / dict / review status disagreeing with the banner, run lists without network names,
+same-image comparison tile wrapping. GUI + library tests: 27 passed (Linux, offscreen). The deck itself is a
+deliverable outside the repository (generated from screenshots; not committed).
+
 ## Current objective
 Hand over for office rehearsal and independent review. Implementation agents should next address review findings
 and the highest-value remaining gaps (multi-process augmentation, CUDA package, service authentication).

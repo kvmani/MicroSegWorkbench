@@ -95,6 +95,13 @@ class MemoryBar(QWidget):
             self.bar.setFormat(f"{used:,.0f} {unit}{suffix}")
 
 
+def _same_run(a, b) -> bool:
+    """Same training settings apart from the seed (repeat-with-seeds runs share one estimate)."""
+    from dataclasses import replace
+
+    return a is not None and b is not None and replace(a, seed=0) == replace(b, seed=0)
+
+
 class TrainPage(QWidget):
     def __init__(self, ctx: AppContext, augment_config: Callable[[], AugmentConfig],
                  preprocess: Callable[[], Any] | None = None) -> None:
@@ -211,6 +218,9 @@ class TrainPage(QWidget):
         setup_outer.addWidget(self.summary_card)
         self.estimate: dict | None = None
         self.estimating = False
+        self._estimate_again = False
+        self._estimate_cfg = None  # settings the shown estimate belongs to
+        self._running_cfg = None
         self.estimate_timer = QTimer(self)
         self.estimate_timer.setSingleShot(True)
         self.estimate_timer.setInterval(600)
@@ -326,8 +336,12 @@ class TrainPage(QWidget):
 
     def refresh_estimate(self) -> None:
         """Estimate this run in the background (one timed training step) and show the summary card."""
-        if self.is_running() or self.estimating:
+        if self.is_running():
             return
+        if self.estimating:  # settings changed while estimating: estimate again when this one finishes
+            self._estimate_again = True
+            return
+        self._estimate_again = False
         try:
             cfg = self.build_config()
         except Exception as exc:  # invalid settings are explained by the checklist / start button
@@ -344,7 +358,13 @@ class TrainPage(QWidget):
 
         def done(est: dict) -> None:
             self.estimating = False
+            if self._estimate_again:
+                self.refresh_estimate()
+                return
+            if self.is_running() and not _same_run(cfg, self._running_cfg):
+                return  # describes settings that were not started; the card keeps the started run
             self.estimate = est
+            self._estimate_cfg = cfg
             mem = est["data_memory_bytes"] / 2**20
             batch = f"{est['batch_size']}" + (" (automatic: checked again when training starts)" if est["auto_batch"]
                                               else "")
@@ -358,6 +378,9 @@ class TrainPage(QWidget):
 
         def failed(message: str, _details: str) -> None:
             self.estimating = False
+            if self._estimate_again:
+                self.refresh_estimate()
+                return
             self.summary_card.setText(f"<b>This run:</b> could not be estimated ({message}).")
 
         run_background(work, done, failed)
@@ -466,6 +489,14 @@ class TrainPage(QWidget):
         except (TrainConfigError, AugmentConfigError, ValueError) as exc:
             self.ctx.error(self, "Cannot start training", str(exc))
             return
+        self.estimate_timer.stop()
+        self._running_cfg = cfg
+        if self.estimate is None or not _same_run(self._estimate_cfg, cfg):
+            from ..training.architectures import ARCHITECTURES
+
+            arch = ARCHITECTURES.get(cfg.architecture)
+            self.summary_card.setText(f"<b>This run:</b> {cfg.epochs} epochs, {arch.title if arch else cfg.architecture}"
+                                      f"; no time estimate for these exact settings (changed just before Start).")
         ws = self.ctx.workspace
         run_id = new_run_id()
         requests = ws.runs_dir / ".requests"
