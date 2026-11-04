@@ -92,8 +92,14 @@ deliverable outside the repository (generated from screenshots; not committed).
   unreachable share, CLI) and GUI test.
 - `docs/ROLLOUT.md`: phases A-C, go/no-go, sign-off checklist, support, data management, upgrade/rollback, known
   limitations. DEPLOYMENT first-start uses the self-test.
-- Beginner's guide regenerated with the new tabs and committed under `docs/guide/` (build scripts in
-  `tools/guide/`).
+- Self-test reads the share by default (researchers lack create/delete rights at the share root); IT runs
+  `--share-write` once per share. `msw --version`.
+- Boundary tolerance set to 1 px after measuring the guide runs: at 2 px a SegFormer run with hydride IoU 0.81 scored
+  boundary F1 0.996 (hydrides are ~3 px wide); at 1 px edges off by one pixel are still forgiven and the systematic
+  thickening shows in the area difference (+0.17 points, +5 % relative).
+- Beginner's guide regenerated (30 slides incl. Accuracy details and installation check) in `docs/guide/`; build
+  scripts in `tools/guide/` delete only the subfolders they create.
+- Evidence: full suite 208 passed, 5 skipped (Linux, offscreen); CI green on Windows/Linux for 7643617.
 
 ## Current objective
 Office pilot of 1.0.0rc1 following docs/ROLLOUT.md (Phase A install + self-test, Phase B pilot and scientific

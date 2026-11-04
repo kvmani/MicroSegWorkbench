@@ -37,7 +37,7 @@ CROPS = {
     "share_fetch": ("24_share_fetch", (720, 485, 1556, 720)),
     "help": ("26_help", (205, 90, 1556, 800)),
     "results_accuracy": ("15b_results_accuracy", (598, 300, 1556, 800)),
-    "selftest": ("29_help_selftest", (205, 520, 1556, 800)),
+    "selftest": ("29_help_selftest", (205, 500, 1010, 770)),
 }
 sizes = {}
 for name, (src, box) in CROPS.items():

@@ -211,8 +211,10 @@ model by the <b>feature classes</b> (for example hydride and pore): the matrix u
 pixel accuracy looks good even when features are missed.</p>
 <p>The <i>Accuracy details</i> tab adds what matters for measurements:</p>
 <ul>
-<li><b>Boundary F1</b>: the share of boundary pixels lying within 2 px of the true boundary (1 = every edge in
-place). Low boundary F1 with good IoU means areas are reliable but widths and shapes less so.</li>
+<li><b>Boundary F1</b>: the share of boundary pixels lying within 1 px of the true boundary (1 = every edge in
+place; one pixel of annotation jitter is forgiven). Low boundary F1 with good IoU means areas are reliable but widths
+and shapes less so. A model that makes thin features one pixel too thick or thin keeps a high boundary F1 but shows
+a clear area difference.</li>
 <li><b>True and predicted area %</b> of each class on the test images and their difference in percentage points.
 A clear difference means the model systematically over- or under-segments that phase, so area fractions
 measured with it would be biased; the run check warns about this.</li>

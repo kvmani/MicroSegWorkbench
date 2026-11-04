@@ -26,7 +26,7 @@
   "  batch-02  [UNREVIEWED]",
   "",
   "> msw compare-image IMAGE RUN RUN --out side.png",
-  "> msw check-run RUN      > msw report RUN"
+  "> msw check-run RUN      > msw report RUN      > msw selftest"
  ],
  "callouts": {
   "tour": [
@@ -396,6 +396,45 @@
     1,
     0.3,
     0.03
+   ]
+  ],
+  "results_accuracy": [
+   [
+    1,
+    0.155,
+    0.135
+   ],
+   [
+    2,
+    0.7,
+    0.31
+   ],
+   [
+    3,
+    0.23,
+    0.44
+   ],
+   [
+    4,
+    0.31,
+    0.79
+   ]
+  ],
+  "selftest": [
+   [
+    1,
+    0.18,
+    0.05
+   ],
+   [
+    2,
+    0.97,
+    0.6
+   ],
+   [
+    3,
+    0.97,
+    0.435
    ]
   ]
  }

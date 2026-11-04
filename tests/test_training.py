@@ -65,7 +65,7 @@ def test_training_learns_and_writes_complete_run(workspace_with_dataset):
     assert report["metrics"]["mean_iou_foreground"] > 0.3
     # accuracy details: consistent with the confusion matrix, one row per test image, CSV for Excel
     acc = report["accuracy"]
-    assert len(acc["per_image"]) == len(report["images"]) and acc["boundary_tolerance_px"] == 2
+    assert len(acc["per_image"]) == len(report["images"]) and acc["boundary_tolerance_px"] == 1
     for c, m in zip(acc["per_class"], report["metrics"]["per_class"]):
         total = report["metrics"]["evaluated_pixels"]
         assert c["area_fraction_true"] == pytest.approx(m["true_pixels"] / total)

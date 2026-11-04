@@ -1,7 +1,7 @@
 # Changelog
 
 ## 1.0.0rc1 - release candidate for the office pilot
-- Accuracy details on the test set: boundary F1 (2 px tolerance), true vs predicted area fraction per class and
+- Accuracy details on the test set: boundary F1 (1 px tolerance), true vs predicted area fraction per class and
   their difference, weakest images, confusion table (Results tab *Accuracy details*, run report, `msw evaluate`,
   Compare rows and CSV, model card, shared record); `evaluation/per_image.csv`.
 - Run check warns when a model would bias area fractions, notes misplaced boundaries and unusually weak images.

@@ -225,6 +225,21 @@ pres.addSection({ title: "Introduction" });
     "four colleagues' PCs (simulated)"], { lineW: 0.75 });
 }
 
+// ============================ 3b. Installation check ===================================================
+{
+  const s = base("Check the installation first", "A READY self-test on every workstation before real work",
+    "Introduction");
+  statements(s, [
+    { n: 1, head: "Help -> Check this installation", text: "or msw selftest; about a minute" },
+    { n: 2, head: "Real training on tiny synthetic data", text: "GPU, disk, data, training, evaluation, segmentation, reproducibility" },
+    { n: 3, head: "Shared folder: read check", text: "nothing is written; IT tests publishing once per share (--share-write)" },
+    { head: "Report saved for sign-off", text: "workspace\\selftest-reports" },
+  ]);
+  attention(s, "NOT READY? Each FAIL line names the step and the reason; send the report to IT.");
+  const r = picture(s, "selftest", { caption: "CPU-only sandbox: the GPU check shows WARN" });
+  callouts(s, r, NUM.callouts.selftest);
+}
+
 // ============================ 4. Screen tour ==========================================================
 {
   const s = base("Finding your way around", "Follow the map left to right; the footer always says what to do next",
@@ -514,7 +529,7 @@ pres.addSection({ title: "Step 4 - Results" });
   const s = base("Step 4 · Accuracy details", "Check boundaries and area fractions before you measure with a model",
     "Step 4 - Results");
   statements(s, [
-    { n: 1, head: "Boundary F1", text: "share of edges within 2 px of the true edge; 1 = every edge in place" },
+    { n: 1, head: "Boundary F1", text: "share of edges within 1 px of the true edge; 1 = every edge in place" },
     { n: 2, head: "True vs predicted area %", text: "a clear difference means biased phase fractions" },
     { n: 3, head: "Weakest test images", text: "look at their overlays first" },
     { n: 4, head: "Where pixels go", text: "which classes are confused with which" },
@@ -668,21 +683,6 @@ pres.addSection({ title: "Reference" });
     s.addText(t, { x: RIGHT_X + 0.85, y: y0 + i * rowH, w: RIGHT_W - 1.1, h: 0.42, fontSize: 14, valign: "middle",
       color: C.text1, margin: 0, isTextBox: true });
   });
-}
-
-// ============================ 27b. Installation check ===================================================
-{
-  const s = base("Check the installation first", "A READY self-test on every workstation before real work",
-    "Reference");
-  statements(s, [
-    { n: 1, head: "Help -> Check this installation", text: "or msw selftest; about a minute" },
-    { n: 2, head: "Real training on tiny synthetic data", text: "GPU, disk, data, training, evaluation, segmentation, reproducibility" },
-    { n: 3, head: "Shared folder tested safely", text: "in a temporary folder that is removed again" },
-    { head: "Report saved for sign-off", text: "workspace\\selftest-reports" },
-  ]);
-  attention(s, "NOT READY? Each FAIL line names the step and the reason; send the report to IT.");
-  const r = picture(s, "selftest", { caption: "CPU-only sandbox: the GPU check shows WARN" });
-  callouts(s, r, NUM.callouts.selftest);
 }
 
 // ============================ 28. Help ==========================================================

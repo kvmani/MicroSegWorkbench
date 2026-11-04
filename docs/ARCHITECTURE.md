@@ -295,7 +295,8 @@ warnings.
 
 ### AD-29 Accuracy details for measurement use
 `core/accuracy.AccuracyAccumulator` (numpy only) is fed every test image during `evaluate_run` and adds to
-`evaluation.json` under `accuracy`: per-class boundary precision/recall/F1 within a fixed 2 px tolerance (square
+`evaluation.json` under `accuracy`: per-class boundary precision/recall/F1 within a fixed 1 px tolerance (2 px was nearly the width of a hydride in tests: a SegFormer run with feature IoU
+0.81 scored 0.996; at 1 px it still forgives annotation jitter) (square
 neighbourhood; image edges and pixels next to ignored ground truth are not boundaries), true vs predicted area
 fractions with their difference and mean per-image absolute error, per-image scores sorted worst first, and the
 row-normalized confusion matrix; `evaluation/per_image.csv` holds the per-image table. Validation during training

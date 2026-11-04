@@ -28,7 +28,9 @@ import numpy as np
 from .augment import IGNORE_INDEX
 from .metrics import confusion_matrix, metrics_from_confusion
 
-BOUNDARY_TOLERANCE_PX = 2
+# 1 px forgives one-pixel annotation jitter but stays strict for features only a few pixels wide (e.g. hydrides);
+# a systematic one-pixel thickening shows up in the area difference instead.
+BOUNDARY_TOLERANCE_PX = 1
 
 
 def boundary(mask: np.ndarray) -> np.ndarray:

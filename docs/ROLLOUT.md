@@ -112,4 +112,5 @@ All must hold:
   U-Net and is mainly for comparison.
 - Input checks on new images cover bit depth and brightness only, not magnification or contrast; users must use
   models only for micrographs like the training images.
-- Boundary F1 uses a fixed 2-pixel tolerance; it compares edges, not physical widths.
+- Boundary F1 uses a fixed 1-pixel tolerance; it compares edge positions, not physical widths (a systematic
+  one-pixel thickening shows in the area difference).
