@@ -25,7 +25,7 @@ ROWS = [("Dataset version", "dataset_id"), ("State", "state"), ("Preset", "prese
         ("Network", "model"), ("Parameters", "parameters"), ("Device", "device"), ("Training time (s)", "train_seconds"),
         ("Best validation epoch", "best_val_epoch"), ("Best validation mIoU (features)", "best_val_miou_fg"),
         ("Test mIoU", "test_miou"), ("Test mIoU (features)", "test_miou_fg"),
-        ("Test pixel accuracy", "test_pixel_accuracy")]
+        ("Test pixel accuracy", "test_pixel_accuracy"), ("Test boundary F1 (features)", "test_boundary_f1_fg")]
 
 
 def _score(v) -> str:
@@ -322,14 +322,18 @@ class ComparePage(QWidget):
         self.warnings.setText("<br>".join(notes))
         summaries = c["runs"]
         class_names = sorted({n for s in summaries for n in s["test_class_iou"]})
-        rows = ROWS + [(f"Test IoU: {n}", ("class", n)) for n in class_names]
+        rows = ROWS + [(f"Test IoU: {n}", ("class", n)) for n in class_names] + \
+            [(f"Area error (points): {n}", ("area", n)) for n in class_names]
         self.table.setColumnCount(len(summaries))
         self.table.setRowCount(len(rows))
         self.table.setHorizontalHeaderLabels([s["run_id"] for s in summaries])
         self.table.setVerticalHeaderLabels([label for label, _ in rows])
         for col, s in enumerate(summaries):
             for row, (_label, key) in enumerate(rows):
-                value = s["test_class_iou"].get(key[1]) if isinstance(key, tuple) else s[key]
+                if isinstance(key, tuple):
+                    value = (s["test_class_iou"] if key[0] == "class" else s["test_area_error"]).get(key[1])
+                else:
+                    value = s[key]
                 self.table.setItem(row, col, QTableWidgetItem(_cell(value)))
         self.table.resizeColumnsToContents()
         diffs = c["differences"]

@@ -2,15 +2,19 @@
 
 Collaborative, reproducible machine-learning workbench for scientific microstructure segmentation.
 
-**Status (v0.4.0):** Phases 1-4 implemented and tested on synthetic data on Linux/CPU:
+**Status (v1.0.0rc1, release candidate for the office pilot):** Phases 1-4 implemented and tested on synthetic data
+(Linux and Windows CI):
 data checking -> immutable dataset version with leakage-safe split -> preprocessing and augmentation preview ->
 real model training with live progress, resource monitoring, resume and GPU safety -> test-set evaluation, run
 comparison and segmentation of new images -> publication to a shared folder, download by colleagues, independent
 review/approval, an optional metadata service with a read-only registry page, OnlineAnnotator export import and
 optional HydrideSegmentation feature statistics. Desktop UI for beginners (guided steps with status, workflow map,
 visual augmentation pipeline builder, drag-to-exclude borders, picture gallery and split tiles, run time estimate)
-and a CLI. Office deployment: [DEPLOYMENT](docs/DEPLOYMENT.md).
-Not yet verified on Windows or on a real GPU. See [PROGRESS](docs/PROGRESS.md) for evidence and known gaps.
+and a CLI. Test-set accuracy includes per-class IoU/Dice, boundary F1, true vs predicted area fractions, weakest
+images and a confusion table. Office deployment: [DEPLOYMENT](docs/DEPLOYMENT.md); roll-out plan and sign-off:
+[ROLLOUT](docs/ROLLOUT.md); beginner's guide (slides): [docs/guide](docs/guide/).
+Not yet verified on an office GPU workstation or the real file server - that is the pilot's job. See
+[PROGRESS](docs/PROGRESS.md) for evidence and known gaps.
 
 Start with [the specification](docs/SPECIFICATION.md). Coding agents follow [AGENTS.md](AGENTS.md); independent reviewers follow [REVIEW.md](REVIEW.md).
 
@@ -51,6 +55,7 @@ Workspace folder (datasets and runs) defaults to `~/MicroSegWorkbench-workspace`
 | `msw report RUN` | Self-contained HTML report (scores, curves, overlays, settings, provenance) |
 | `msw compare-image IMAGE RUN RUN... [--mask M --dataset D] [--out f.png]` | Several models on one image, side by side |
 | `msw compare RUN RUN... [--csv f]` | Compare runs (warns if test sets differ) |
+| `msw selftest [--share PATH]` | Installation check for roll-out (synthetic data; report saved in the workspace) |
 | `msw models` | All trained models: here and on the shared folder, approved first |
 | `msw predict RUN FOLDER --out NEW` | Segment new images (masks, overlays, predictions.json); a shared model is downloaded first; warns when images differ from the training images |
 | `msw architectures` | Available networks (U-Net, SegFormer-lite, plugins) |

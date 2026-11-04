@@ -23,6 +23,27 @@ class PredictionError(ValueError):
     pass
 
 
+def predictions_csv(report: dict[str, Any]) -> str:
+    """One row per segmented image: area % of each class, size, warnings (opens in Excel)."""
+    import csv
+    import io
+
+    names = [c["name"] for c in report["class_map"]["classes"]]
+    warn = {}
+    for w in report.get("warnings", []):
+        warn.setdefault(w["file"], []).append(w["warning"])
+    buf = io.StringIO()
+    out = csv.writer(buf, lineterminator="\n")
+    out.writerow(["image", "height_px", "width_px"] + [f"area_%_{n}" for n in names] + ["warning"])
+    for r in report["images"]:
+        out.writerow([r["file"], r["height"], r["width"]]
+                     + [f"{100 * r['class_fractions'][n]:.4f}" for n in names] + ["; ".join(warn.get(r["file"], []))])
+    out.writerow([])
+    out.writerow([f"model {report['run_id']}, checkpoint epoch {report['checkpoint_epoch']}, {report['review_status']}"
+                  " - area % of the analysed region of each image"])
+    return buf.getvalue()
+
+
 def predict_folder(run: RunDir, input_folder: Path, output_folder: Path, checkpoint: str = "best",
                    device: str = "auto", progress: Callable[[int, int, str], None] | None = None) -> dict[str, Any]:
     """Predict every image in ``input_folder`` (masks named ``*_mask`` are skipped).
@@ -112,6 +133,7 @@ def predict_folder(run: RunDir, input_folder: Path, output_folder: Path, checkpo
             "warnings": warnings,
         }
         write_json_atomic(stage / "predictions.json", report)
+        write_bytes_atomic(stage / "predictions.csv", predictions_csv(report).encode("utf-8"))
         publish_dir(stage, output_folder)
     except BaseException:
         shutil.rmtree(stage, ignore_errors=True)

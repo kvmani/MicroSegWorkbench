@@ -49,6 +49,7 @@ def diagnose_run(run: RunDir) -> list[Finding]:
         elif 0 < c["true_pixels"] < 500:
             findings.append(("info", f"Class '{c['name']}' has only {c['true_pixels']} test pixels; its score is "
                                      "uncertain."))
+    findings += _accuracy_findings(evaluation.get("accuracy"), metrics)
     best_val = max((s for _, s in scores), default=None)
     test = metrics.get("mean_iou_foreground")
     if best_val is not None and test is not None and best_val - test > 0.15:
@@ -60,6 +61,40 @@ def diagnose_run(run: RunDir) -> list[Finding]:
     if test is not None and not [f for f in findings if f[0] == "warn"]:
         findings.insert(0, ("ok", f"Training looks healthy (test mean IoU of feature classes {test:.2f})."))
     return findings
+
+
+AREA_RELATIVE_LIMIT = 0.2  # predicted area fraction more than 20 % off the true one ...
+AREA_ABSOLUTE_LIMIT = 0.005  # ... and more than 0.5 percentage points
+WEAK_IMAGE_GAP = 0.2  # an image this far below the average feature IoU is pointed out
+
+
+def _accuracy_findings(acc: dict[str, Any] | None, metrics: dict[str, Any]) -> list[Finding]:
+    """Biased area fractions, misplaced boundaries and unusually weak images, in plain words."""
+    if not acc:
+        return []
+    out: list[Finding] = []
+    iou = {c["name"]: c["iou"] for c in metrics.get("per_class", [])}
+    for c in acc["per_class"][1:]:
+        true, err = c["area_fraction_true"], c["area_fraction_error"]
+        if true and err is not None and abs(err) > AREA_ABSOLUTE_LIMIT and abs(err) > AREA_RELATIVE_LIMIT * true:
+            word = "over" if err > 0 else "under"
+            out.append(("warn", f"The model {word}estimates the area fraction of '{c['name']}': "
+                                f"{100 * c['area_fraction_pred']:.2f} % predicted vs {100 * true:.2f} % true on the "
+                                "test images. Area fractions measured with this model would be biased."))
+        f1 = c["boundary_f1"]
+        if f1 is not None and f1 < 0.5 and (iou.get(c["name"]) or 0) >= 0.6:
+            out.append(("info", f"Boundaries of '{c['name']}' are often more than {acc['boundary_tolerance_px']} px "
+                                f"off (boundary F1 {f1:.2f}) although the overlap is good: feature widths and shapes "
+                                "are less reliable than areas."))
+    scored = [i for i in acc.get("per_image", []) if i["mean_iou_foreground"] is not None]
+    if len(scored) >= 3:
+        mean = sum(i["mean_iou_foreground"] for i in scored) / len(scored)
+        worst = scored[0]
+        if worst["mean_iou_foreground"] < mean - WEAK_IMAGE_GAP:
+            out.append(("info", f"Test image {worst['stem']} scores much lower ({worst['mean_iou_foreground']:.2f}) "
+                                f"than the average ({mean:.2f}); look at its overlay - it may be unusual or its "
+                                "mask may need checking."))
+    return out
 
 
 def diagnostics_dict(run: RunDir) -> dict[str, Any]:

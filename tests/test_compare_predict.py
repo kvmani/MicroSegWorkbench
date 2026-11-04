@@ -47,6 +47,8 @@ def test_compare_same_dataset_lists_differences(trained):
     assert c["runs"][0]["epochs_done"] == 2
     csv_text = comparison_csv(c)
     assert csv_text.splitlines()[0].startswith("run_id,") and "test_iou_hydride" in csv_text
+    assert "test_boundary_f1_fg" in csv_text and "test_area_error_points_hydride" in csv_text
+    assert c["runs"][0]["test_boundary_f1_fg"] is not None and "hydride" in c["runs"][0]["test_area_error"]
 
 
 def test_compare_different_datasets_warns(trained):
@@ -71,6 +73,11 @@ def test_predict_folder_writes_class_values_and_is_atomic(trained, tmp_path):
     mask = np.asarray(Image.open(tmp_path / "out" / f"{stem}_pred_mask.png"))
     assert set(np.unique(mask)) <= {0, 1, 2}
     assert json.loads((tmp_path / "out" / "predictions.json").read_text())["checkpoint_sha256"]
+    rows = (tmp_path / "out" / "predictions.csv").read_text().splitlines()
+    assert rows[0].startswith("image,height_px,width_px,area_%_") and len(rows) == 1 + len(report["images"]) + 2
+    first = rows[1].split(",")
+    pct = [float(v) for v in first[3:3 + len(report["class_map"]["classes"])]]
+    assert sum(pct) == pytest.approx(100, abs=0.01)  # area fractions of one image add up to 100 %
     with pytest.raises(PredictionError, match="already exists"):
         predict_folder(r1, new, tmp_path / "out", device="cpu")
     assert not any(p.name.startswith(".staging") for p in tmp_path.iterdir())

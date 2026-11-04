@@ -81,6 +81,7 @@ def test_full_workflow(app, tmp_path):
     assert res.history.rowCount() == 3
     assert res.overlay.has_image()
     assert "Run check" in res.diagnosis.text()
+    assert "Boundary F1" in res.accuracy_view.toPlainText() and "Weakest test images" in res.accuracy_view.toPlainText()
     res.add_observation()  # empty: refused
     assert "Write the observation" in res.ctx.last_error
     res.note_edit.setPlainText("Pore boundaries a bit soft.")
@@ -758,4 +759,16 @@ def test_blocked_dataset_is_explained_everywhere(app, tmp_path):
     win.refresh_status()
     assert not win.train_page.start_btn.isEnabled()
     assert win.statuses[2].state == ATTENTION and "Cannot start yet" in win.step_state.text()
+    win.close()
+
+
+def test_help_page_runs_the_installation_check(app, tmp_path):
+    from microseg_workbench.gui.app import MainWindow
+
+    win = MainWindow(Workspace(tmp_path / "ws"), interactive=False)
+    help_page = win.help_page
+    help_page.run_selftest()
+    wait_until(app, lambda: not help_page.selftest_busy, timeout=300)
+    assert help_page.selftest_result is not None and help_page.selftest_result.ok
+    assert "RESULT: READY" in help_page.selftest_view.toPlainText()
     win.close()

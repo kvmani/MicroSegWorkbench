@@ -84,8 +84,20 @@ same-image comparison tile wrapping, a stale "Results are unreviewed" line under
 195 passed, 5 skipped (Linux, offscreen). The deck itself is a
 deliverable outside the repository (generated from screenshots; not committed).
 
+## Roll-out preparation - 2026-11-04 (owner: "deploy soon; improve without complicating; more accuracy metrics")
+- Version 1.0.0rc1. Accuracy details (AD-29): boundary F1, area fractions true vs predicted, weakest images,
+  confusion table, per-image CSV; run-check findings; predictions.csv. Hand-checked unit tests
+  (`tests/test_accuracy.py`) plus consistency with the confusion matrix in the training test.
+- Installation self-test (AD-30): `msw selftest`, Help button; `tests/test_selftest.py` (pass path, share clean-up,
+  unreachable share, CLI) and GUI test.
+- `docs/ROLLOUT.md`: phases A-C, go/no-go, sign-off checklist, support, data management, upgrade/rollback, known
+  limitations. DEPLOYMENT first-start uses the self-test.
+- Beginner's guide regenerated with the new tabs and committed under `docs/guide/` (build scripts in
+  `tools/guide/`).
+
 ## Current objective
-Hand over for office rehearsal and independent review. Implementation agents should next address review findings
+Office pilot of 1.0.0rc1 following docs/ROLLOUT.md (Phase A install + self-test, Phase B pilot and scientific
+validation). Earlier: hand over for office rehearsal and independent review. Implementation agents should next address review findings
 and the highest-value remaining gaps (multi-process augmentation, CUDA package, service authentication).
 
 ## Decisions

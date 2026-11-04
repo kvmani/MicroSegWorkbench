@@ -370,7 +370,28 @@ def cmd_evaluate(args: argparse.Namespace) -> int:
             print(f"  {c['name']:15s} IoU {_fmt(c['iou'])}  Dice {_fmt(c['dice'])}  "
                   f"precision {_fmt(c['precision'])}  recall {_fmt(c['recall'])}")
         print(f"  mean IoU {_fmt(m['mean_iou'])}  pixel accuracy {_fmt(m['pixel_accuracy'])}")
+    acc = report.get("accuracy")
+    if acc:
+        print(f"Boundaries (within {acc['boundary_tolerance_px']} px) and area fractions:")
+        for c in acc["per_class"]:
+            err = c["area_fraction_error"]
+            print(f"  {c['name']:15s} boundary F1 {_fmt(c['boundary_f1'])}  area true {_pct(c['area_fraction_true'])} "
+                  f"predicted {_pct(c['area_fraction_pred'])}"
+                  + ("" if err is None else f"  ({100 * err:+.2f} points)"))
+        weakest = [i for i in acc["per_image"] if i["mean_iou_foreground"] is not None][:3]
+        if weakest:
+            print("Weakest test images: " + ", ".join(f"{i['stem']} ({i['mean_iou_foreground']:.3f})" for i in weakest))
+        print(f"Per-image scores: {ws.runs_dir / args.run / 'evaluation' / 'per_image.csv'}")
+    from .training.diagnostics import diagnose_run
+
+    for level, msg in diagnose_run(RunDir(ws.runs_dir / args.run)):
+        if level in ("warn", "block"):
+            print(f"CHECK: {msg}")
     return 0
+
+
+def _pct(v) -> str:
+    return "n/a" if v is None else f"{100 * v:.2f} %"
 
 
 def cmd_runs(args: argparse.Namespace) -> int:
@@ -613,6 +634,22 @@ def cmd_quickstart(args: argparse.Namespace) -> int:
     return cmd_train(args)
 
 
+def cmd_selftest(args: argparse.Namespace) -> int:
+    from .collab.settings import CollabSettings
+    from .selftest import run_selftest
+
+    ws = _ws(args)
+    share = Path(args.share) if args.share else (CollabSettings.load(ws).share_root() if not args.no_share else None)
+    print("MicroSegWorkbench self-test (synthetic data, about a minute)...")
+    result = run_selftest(ws, share=share, device=args.device, keep=args.keep,
+                          progress=lambda m: print("  " + m) if m.startswith("[") else None)
+    print()
+    print(result.text())
+    if result.report_path:
+        print(f"Report saved: {result.report_path}")
+    return 0 if result.ok else 1
+
+
 def cmd_gui(args: argparse.Namespace) -> int:
     from .gui.app import main as gui_main
 
@@ -664,6 +701,12 @@ def build_parser() -> argparse.ArgumentParser:
     sub.add_parser("datasets", help="list dataset versions").set_defaults(func=cmd_datasets)
     sub.add_parser("architectures", help="list available networks").set_defaults(func=cmd_architectures)
     sub.add_parser("models", help="trained models here and on the shared folder").set_defaults(func=cmd_models)
+    s = sub.add_parser("selftest", help="check that this computer (and the shared folder) is ready - for roll-out")
+    s.add_argument("--share", help="shared folder to test (default: the one configured for this workspace)")
+    s.add_argument("--no-share", action="store_true", help="skip the shared-folder check")
+    s.add_argument("--device", default="auto", choices=["auto", "cpu", "cuda"])
+    s.add_argument("--keep", action="store_true", help="keep the temporary self-test folder for inspection")
+    s.set_defaults(func=cmd_selftest)
     s = sub.add_parser("note", help="add or list observations for a run")
     s.add_argument("run")
     s.add_argument("text", nargs="?", help="observation to add (omit to list)")

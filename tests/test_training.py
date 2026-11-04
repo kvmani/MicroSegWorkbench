@@ -63,6 +63,20 @@ def test_training_learns_and_writes_complete_run(workspace_with_dataset):
     assert report["split"] == "test"
     assert set(report["images"]) == {s["stem"] for s in version.samples("test")}
     assert report["metrics"]["mean_iou_foreground"] > 0.3
+    # accuracy details: consistent with the confusion matrix, one row per test image, CSV for Excel
+    acc = report["accuracy"]
+    assert len(acc["per_image"]) == len(report["images"]) and acc["boundary_tolerance_px"] == 2
+    for c, m in zip(acc["per_class"], report["metrics"]["per_class"]):
+        total = report["metrics"]["evaluated_pixels"]
+        assert c["area_fraction_true"] == pytest.approx(m["true_pixels"] / total)
+        assert c["area_fraction_pred"] == pytest.approx(m["predicted_pixels"] / total)
+    assert acc["mean_boundary_f1_foreground"] is not None and 0 <= acc["mean_boundary_f1_foreground"] <= 1
+    assert all(abs(sum(r) - 1) < 1e-9 for r in acc["confusion_row_normalized"] if r[0] is not None)
+    csv_lines = (run.evaluation / "per_image.csv").read_text().splitlines()
+    assert len(csv_lines) == 1 + len(report["images"])
+    from microseg_workbench.training.report import build_report
+
+    assert "Boundaries and area fractions" in build_report(run)
     pred_mask = np.asarray(Image.open(run.evaluation / f"{report['images'][0]}_pred_mask.png"))
     assert set(np.unique(pred_mask)) <= set(version.class_map.values)
     model, ckpt = load_checkpoint(run.checkpoints / "best.pt")

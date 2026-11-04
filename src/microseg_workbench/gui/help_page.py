@@ -186,7 +186,8 @@ networks, presets or training data can be compared this way. Command line: <code
 <h3>Segmenting new images</h3>
 <p>In <b>4 Results</b>, select a run and press <i>Segment new images...</i>. Choose a folder of micrographs and a new
 output folder; each image gets a mask (<code>_pred_mask.png</code>, original class values), an overlay and an entry in
-<code>predictions.json</code> with the model's identity. Predictions are unreviewed.</p>
+<code>predictions.json</code> with the model's identity. <code>predictions.csv</code> lists the area % of every class
+in every image (opens in Excel) with any warnings. Predictions are unreviewed.</p>
 <p>To use a colleague's model, select it in <b>6 Share</b> and press <i>Download and segment images...</i>: the model
 and its dataset are fetched (verified), then your images are segmented. On the command line, <code>msw models</code>
 lists every model here and on the shared folder, and <code>msw predict RUN ...</code> downloads a shared model
@@ -202,6 +203,32 @@ fingerprint and observations. It is saved as <code>model_card.json</code> and pu
 <h3>Results and approval</h3>
 <p>The best checkpoint (highest validation feature IoU) is evaluated on the test split. Results stay
 <b>unreviewed</b> until a colleague reviews the published run in <b>6 Share</b>.</p>
+
+<h3>How accurate is the model? (Accuracy details)</h3>
+<p>The <i>Per-class test metrics</i> tab gives pixel overlap per class: <b>IoU</b> (overlap / union, 1 = perfect),
+Dice, precision (how much of what was predicted is right) and recall (how much of the truth was found). Judge a
+model by the <b>feature classes</b> (for example hydride and pore): the matrix usually covers most pixels, so overall
+pixel accuracy looks good even when features are missed.</p>
+<p>The <i>Accuracy details</i> tab adds what matters for measurements:</p>
+<ul>
+<li><b>Boundary F1</b>: the share of boundary pixels lying within 2 px of the true boundary (1 = every edge in
+place). Low boundary F1 with good IoU means areas are reliable but widths and shapes less so.</li>
+<li><b>True and predicted area %</b> of each class on the test images and their difference in percentage points.
+A clear difference means the model systematically over- or under-segments that phase, so area fractions
+measured with it would be biased; the run check warns about this.</li>
+<li><b>Weakest test images</b>: look at their overlays first; one bad image may be unusual or have a wrong mask.
+All per-image scores are in <code>evaluation/per_image.csv</code>.</li>
+<li><b>Where pixels go</b>: for each true class, the % of its pixels predicted as each class (confusions).</li>
+</ul>
+<p>All scores are computed at the original resolution on test images the model never saw, excluding ignored mask
+pixels and any excluded border. Few test specimens make every score uncertain; repeat with seeds and add specimens
+before trusting small differences.</p>
+
+<h3>Checking an installation</h3>
+<p>Press <i>Check this installation</i> at the bottom of this page (or run <code>msw selftest</code>): in about a
+minute the workbench trains, evaluates and segments tiny synthetic images on this computer, checks the GPU, the disk,
+reproducibility and - if configured - the shared folder (inside a temporary folder that is removed again). The
+report is saved in the workspace folder <code>selftest-reports</code>; IT uses it to sign off a workstation.</p>
 
 <h3>Feature statistics (hydrides)</h3>
 <p>In <b>4 Results</b>, the <i>Feature statistics</i> tab compares ground truth and prediction on the test images for
@@ -242,9 +269,56 @@ on a local disk; only the shared folder lives on the network drive.</p>
 
 
 class HelpPage(QWidget):
-    def __init__(self) -> None:
+    def __init__(self, ctx=None) -> None:
+        from PySide6.QtWidgets import QHBoxLayout, QLabel, QPlainTextEdit, QPushButton
+
         super().__init__()
+        self.ctx = ctx
         self.browser = QTextBrowser()
         self.browser.setHtml(GUIDE)
         layout = QVBoxLayout(self)
-        layout.addWidget(self.browser)
+        layout.addWidget(self.browser, 3)
+        row = QHBoxLayout()
+        self.selftest_btn = QPushButton("Check this installation")
+        self.selftest_btn.setToolTip("About a minute: trains, evaluates and segments tiny synthetic images here and "
+                                     "tests the shared folder (in a temporary folder). For IT and first use.")
+        self.selftest_btn.clicked.connect(self.run_selftest)
+        row.addWidget(self.selftest_btn)
+        row.addWidget(QLabel("Runs the self-test used for roll-out; the report is saved in the workspace."), 1)
+        layout.addLayout(row)
+        self.selftest_view = QPlainTextEdit()
+        self.selftest_view.setReadOnly(True)
+        self.selftest_view.setVisible(False)
+        layout.addWidget(self.selftest_view, 2)
+        self.selftest_result = None
+        self.selftest_busy = False
+
+    def run_selftest(self) -> None:
+        from ..collab.settings import CollabSettings
+        from ..selftest import run_selftest
+        from .widgets import run_background
+
+        if self.ctx is None or self.selftest_busy:
+            return
+        ws = self.ctx.workspace
+        share = CollabSettings.load(ws).share_root()
+        self.selftest_busy = True
+        self.selftest_btn.setEnabled(False)
+        self.selftest_view.setVisible(True)
+        self.selftest_view.setPlainText("Running the self-test (about a minute)...")
+
+        def done(result) -> None:
+            self.selftest_busy = False
+            self.selftest_btn.setEnabled(True)
+            self.selftest_result = result
+            text = result.text()
+            if result.report_path:
+                text += f"\nReport saved: {result.report_path}"
+            self.selftest_view.setPlainText(text)
+
+        def failed(message: str, details: str) -> None:
+            self.selftest_busy = False
+            self.selftest_btn.setEnabled(True)
+            self.selftest_view.setPlainText(f"The self-test could not run: {message}\n{details}")
+
+        run_background(lambda: run_selftest(ws, share=share), done, failed)

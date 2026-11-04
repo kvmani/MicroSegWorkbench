@@ -509,8 +509,12 @@ def evaluate_run(run: RunDir, workspace: Workspace, device: torch.device | None 
     source = SplitSource(version, split, max_cached=0)
     prep = Preprocess.from_meta(ckpt)
     values = np.asarray(class_map.values, np.uint8)
+    from ..core.accuracy import AccuracyAccumulator, per_image_csv
+
+    details = AccuracyAccumulator(class_map.names)
 
     def save(s: Sample, pred: np.ndarray) -> None:
+        details.add(s.stem, s.labels, pred)
         tile = tile_grid([thumbnail(to_display_rgb(s.image), EVAL_PANEL_MAX_SIDE),
                           thumbnail(overlay(s.image, s.labels, class_map), EVAL_PANEL_MAX_SIDE),
                           thumbnail(overlay(s.image, pred, class_map), EVAL_PANEL_MAX_SIDE)], columns=3)
@@ -520,6 +524,10 @@ def evaluate_run(run: RunDir, workspace: Workspace, device: torch.device | None 
     metrics, loss, _ = (evaluate(model, source, device, class_map.names, prep, keep=set(), on_prediction=save)
                         if len(source) else (None, None, {}))
     samples = source.records
+    accuracy = details.result(metrics["confusion_matrix"]) if metrics else None
+    if accuracy:
+        write_bytes_atomic(run.evaluation / "per_image.csv",
+                           per_image_csv(accuracy, class_map.names).encode("utf-8"))
     report = {
         "run_id": run.run_id,
         "checkpoint": "checkpoints/best.pt",
@@ -530,6 +538,7 @@ def evaluate_run(run: RunDir, workspace: Workspace, device: torch.device | None 
         "images": [r["stem"] for r in samples],
         "loss": loss,
         "metrics": metrics,
+        "accuracy": accuracy,
         "preprocess": prep.to_dict(),
         "resolution": "metrics computed at original image resolution against original masks, excluding any "
                       "excluded border; prediction masks cover the analysed region only",

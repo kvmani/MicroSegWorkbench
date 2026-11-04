@@ -50,8 +50,13 @@ alternative launcher.
 First start:
 1. The workspace defaults to `%USERPROFILE%\MicroSegWorkbench-workspace` (change it at the top of the window, or set
    `MSW_WORKSPACE`). Keep it on a **local** disk with room for dataset copies and checkpoints.
-2. Step 1 -> *Create demo data* -> step 3 -> *Start training* is a 1-minute self-test.
-3. Command-line equivalent: `%LOCALAPPDATA%\MicroSegWorkbench\venv\Scripts\python -m microseg_workbench quickstart`.
+2. Connect the shared folder (step 6), then run the installation check: *Help -> Check this installation*, or
+   `%LOCALAPPDATA%\MicroSegWorkbench\venv\Scripts\python -m microseg_workbench selftest` (about a minute).
+   It trains, evaluates and segments tiny synthetic images on this computer, checks GPU, disk and reproducibility,
+   and publishes/downloads through a temporary folder inside the shared folder (removed afterwards). Expect
+   **RESULT: READY**; keep the report from `<workspace>\selftest-reports\` for the roll-out sign-off
+   ([ROLLOUT](ROLLOUT.md)).
+3. Step 1 -> *Create demo data* -> step 3 -> *Start training* shows the whole workflow in a few minutes.
 
 Self-test of the installation (optional, needs `pytest` in the wheelhouse):
 `python -m pytest -q <source>\tests` (about 2 minutes on CPU).
@@ -111,7 +116,7 @@ Proposed `manifest.yml` entry (to be added in that repository by its maintainers
 ```yaml
   msw_metadata:
     repo: kvmani/MicroSegWorkbench
-    ref: v0.4.0            # a tagged release of this repository (to be tagged)
+    ref: v1.0.0rc1         # a tagged release of this repository (to be tagged)
     commit: ""
     dir: MicroSegWorkbench
     import_check: microseg_workbench
@@ -183,6 +188,7 @@ replaces (revokes) the old token. Tokens are stored only as SHA-256 hashes.
 
 | Symptom | Check |
 |---|---|
+| Self-test "NOT READY" | Read the FAIL lines: each names the step and the reason (GPU, disk, share path or permissions) |
 | "No NVIDIA GPU detected" | `msw devices` diagnosis: CPU-only torch wheel installed, driver missing/outdated |
 | Training stops with "ran out of memory" | Resume or restart with a smaller batch size / patch size, or use automatic batch size |
 | Run shows "interrupted" | The computer or app stopped during training; *4 Results -> Resume training* |

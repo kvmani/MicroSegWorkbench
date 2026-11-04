@@ -1,6 +1,17 @@
 # Changelog
 
-## Unreleased (0.4.0)
+## 1.0.0rc1 - release candidate for the office pilot
+- Accuracy details on the test set: boundary F1 (2 px tolerance), true vs predicted area fraction per class and
+  their difference, weakest images, confusion table (Results tab *Accuracy details*, run report, `msw evaluate`,
+  Compare rows and CSV, model card, shared record); `evaluation/per_image.csv`.
+- Run check warns when a model would bias area fractions, notes misplaced boundaries and unusually weak images.
+- `predictions.csv` with the area % of every class per segmented image (Excel), with input warnings.
+- Installation self-test for roll-out: `msw selftest` / *Help -> Check this installation* (GPU, disk, data,
+  training, evaluation, segmentation, reproducibility, shared folder in a temporary folder); report saved.
+- Roll-out plan with phases, go/no-go criteria, sign-off checklist, support and rollback: `docs/ROLLOUT.md`.
+- Beginner's guide slides in `docs/guide/`.
+
+## 0.4.0 (pilot preparation)
 - Fixes found while preparing the beginner's guide: the "This run" card could show settings or a network other
   than the ones selected or started (an estimate requested while another was running was dropped); step 3 said
   "Ready to train" while a red dataset-check item blocked Start; the dataset-check text after creating a version

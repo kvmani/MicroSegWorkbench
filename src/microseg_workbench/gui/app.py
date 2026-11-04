@@ -46,7 +46,7 @@ class MainWindow(QMainWindow):
         self.compare_page = ComparePage(self.ctx)
         self.share_page = SharePage(self.ctx)
         self.share_page.use_model = lambda run, inp, out: (self.go_to(3), self.results_page.predict(run, inp, out))
-        self.help_page = HelpPage()
+        self.help_page = HelpPage(self.ctx)
 
         self.nav = QListWidget()
         self.nav.addItems(STEPS)

@@ -292,3 +292,23 @@ dtypes and mean-brightness range in `run.json` and the model card; `trainer.inpu
 with it in prediction and multi-model comparison. Unlike images are still segmented (no silent refusal of
 legitimate data) but warnings are shown and stored in `predictions.json`. Older runs without a profile give no
 warnings.
+
+### AD-29 Accuracy details for measurement use
+`core/accuracy.AccuracyAccumulator` (numpy only) is fed every test image during `evaluate_run` and adds to
+`evaluation.json` under `accuracy`: per-class boundary precision/recall/F1 within a fixed 2 px tolerance (square
+neighbourhood; image edges and pixels next to ignored ground truth are not boundaries), true vs predicted area
+fractions with their difference and mean per-image absolute error, per-image scores sorted worst first, and the
+row-normalized confusion matrix; `evaluation/per_image.csv` holds the per-image table. Validation during training
+is unchanged (speed). One HTML builder (`training/report.accuracy_html`) serves the run report and the Results
+*Accuracy details* tab; the run check warns when a feature class's predicted area fraction differs from the truth by
+more than 20 % relative and 0.5 points, notes misplaced boundaries with good overlap and unusually weak images.
+Runs evaluated by older versions show a hint to re-evaluate. Prediction folders get `predictions.csv` (area % per
+image and class, warnings).
+
+### AD-30 Installation self-test for roll-out
+`selftest.run_selftest` exercises the real code paths on tiny synthetic data inside a temporary folder of the
+workspace: software, compute device, disk, validation + dataset version, a 3-epoch training with evaluation on the
+chosen device, segmentation, CPU reproducibility, and - when a share is configured - publish/download/verify through a
+temporary `SharedStore` created inside the share (real records untouched, removed afterwards). Results are
+PASS/WARN/FAIL/SKIP with plain reasons; a text report is saved in `<workspace>/selftest-reports/` for the sign-off in
+`docs/ROLLOUT.md`. Available as `msw selftest` and *Help -> Check this installation*.

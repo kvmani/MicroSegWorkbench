@@ -211,6 +211,8 @@ class SharedStore:
             "summary": {"split": evaluation.get("split"), "mean_iou": metrics.get("mean_iou"),
                         "mean_iou_foreground": metrics.get("mean_iou_foreground"),
                         "pixel_accuracy": metrics.get("pixel_accuracy"),
+                        "mean_boundary_f1_foreground": (evaluation.get("accuracy") or {}).get(
+                            "mean_boundary_f1_foreground"),
                         "per_class_iou": {c["name"]: c["iou"] for c in metrics.get("per_class", [])}},
             "published_by": user or current_user(),
             "published_at": utc_now(),

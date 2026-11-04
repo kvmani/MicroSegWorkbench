@@ -33,6 +33,7 @@ def run_summary(run: RunDir) -> dict[str, Any]:
     if path.exists():
         evaluation = json.loads(path.read_text(encoding="utf-8"))
     metrics = (evaluation or {}).get("metrics") or {}
+    accuracy = (evaluation or {}).get("accuracy") or {}
     best = max((e for e in history if e.get("val_mean_iou_foreground") is not None),
                key=lambda e: e["val_mean_iou_foreground"], default=None)
     return {
@@ -61,6 +62,10 @@ def run_summary(run: RunDir) -> dict[str, Any]:
         "test_miou_fg": metrics.get("mean_iou_foreground"),
         "test_pixel_accuracy": metrics.get("pixel_accuracy"),
         "test_class_iou": {c["name"]: c["iou"] for c in metrics.get("per_class", [])},
+        "test_boundary_f1_fg": accuracy.get("mean_boundary_f1_foreground"),
+        # predicted minus true area fraction, in percentage points
+        "test_area_error": {c["name"]: (None if c["area_fraction_error"] is None else round(100 * c["area_fraction_error"], 3))
+                            for c in accuracy.get("per_class", [])},
         "review_status": (evaluation or {}).get("review_status"),
         "val_curve": [(e["epoch"], e.get("val_mean_iou_foreground")) for e in history],
         "config_flat": _config_flat(info),
@@ -125,14 +130,16 @@ def seed_variability(summaries: list[dict[str, Any]]) -> dict[str, Any]:
 
 TABLE_COLUMNS = ["run_id", "state", "dataset_id", "preset", "epochs_done", "learning_rate", "batch_size", "loss",
                  "seed", "model", "device", "train_seconds", "best_val_epoch", "best_val_miou_fg", "test_miou",
-                 "test_miou_fg", "test_pixel_accuracy"]
+                 "test_miou_fg", "test_pixel_accuracy", "test_boundary_f1_fg"]
 
 
 def comparison_csv(comparison: dict[str, Any]) -> str:
     class_names = sorted({n for s in comparison["runs"] for n in s["test_class_iou"]})
     buf = io.StringIO()
     writer = csv.writer(buf)
-    writer.writerow(TABLE_COLUMNS + [f"test_iou_{n}" for n in class_names])
+    writer.writerow(TABLE_COLUMNS + [f"test_iou_{n}" for n in class_names]
+                    + [f"test_area_error_points_{n}" for n in class_names])
     for s in comparison["runs"]:
-        writer.writerow([s[c] for c in TABLE_COLUMNS] + [s["test_class_iou"].get(n) for n in class_names])
+        writer.writerow([s[c] for c in TABLE_COLUMNS] + [s["test_class_iou"].get(n) for n in class_names]
+                        + [s["test_area_error"].get(n) for n in class_names])
     return buf.getvalue()

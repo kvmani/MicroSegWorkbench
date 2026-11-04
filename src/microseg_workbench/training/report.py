@@ -60,6 +60,57 @@ def _svg_chart(title: str, series: dict[str, list[tuple[float, float]]], y_max: 
     return "".join(parts)
 
 
+def _pct(v: Any) -> str:
+    return "n/a" if v is None else f"{100 * v:.2f}"
+
+
+def _points(v: Any) -> str:
+    return "n/a" if v is None else f"{100 * v:+.2f}"
+
+
+def accuracy_html(evaluation: dict[str, Any] | None, worst: int = 5) -> str:
+    """Boundary agreement, area fractions, worst images and the normalized confusion matrix as HTML tables.
+
+    Used by the run report and the Results page; empty text when the run was evaluated by an older version.
+    """
+    acc = (evaluation or {}).get("accuracy")
+    if not acc:
+        return ("<p>Accuracy details are not available for this run (evaluated with an older version). "
+                "Re-evaluate it with <code>msw evaluate RUN</code>.</p>")
+    tol = acc.get("boundary_tolerance_px")
+    rows = "".join(
+        f"<tr><td>{html.escape(c['name'])}</td><td>{_f(c['boundary_f1'])}</td><td>{_f(c['boundary_precision'])}</td>"
+        f"<td>{_f(c['boundary_recall'])}</td><td>{_pct(c['area_fraction_true'])}</td>"
+        f"<td>{_pct(c['area_fraction_pred'])}</td><td>{_points(c['area_fraction_error'])}</td>"
+        f"<td>{_pct(c['per_image_area_fraction_mae'])}</td></tr>" for c in acc["per_class"])
+    images = acc.get("per_image", [])
+    img_rows = "".join(
+        f"<tr><td>{html.escape(i['stem'])}</td><td>{_f(i['mean_iou_foreground'])}</td><td>{_f(i['pixel_accuracy'])}</td>"
+        + "".join(f"<td>{_pct(i['area_fraction_true'].get(c['name']))} / {_pct(i['area_fraction_pred'].get(c['name']))}</td>"
+                  for c in acc["per_class"][1:]) + "</tr>"
+        for i in images[:worst])
+    names = [c["name"] for c in acc["per_class"]]
+    conf = acc.get("confusion_row_normalized")
+    conf_html = ""
+    if conf:
+        head = "".join(f"<th>predicted {html.escape(n)}</th>" for n in names)
+        body = "".join(f"<tr><th>true {html.escape(n)}</th>" + "".join(f"<td>{_pct(v)}</td>" for v in row) + "</tr>"
+                       for n, row in zip(names, conf))
+        conf_html = (f"<h3>Where pixels go (% of each true class)</h3><table><tr><th></th>{head}</tr>{body}</table>"
+                     "<p>Rows add up to 100 %. Off-diagonal cells show which classes are confused.</p>")
+    return (f"<h3>Boundaries and area fractions</h3>"
+            f"<table><tr><th>Class</th><th>Boundary F1</th><th>Boundary precision</th><th>Boundary recall</th>"
+            f"<th>True area %</th><th>Predicted area %</th><th>Difference (points)</th>"
+            f"<th>Mean per-image area error (points)</th></tr>{rows}</table>"
+            f"<p>Boundary F1: share of boundary pixels within {tol} px of the true boundary (1 = all edges in place). "
+            "Area %: share of evaluated pixels; the difference shows whether the model systematically over- or "
+            "under-segments a phase.</p>"
+            f"<h3>Weakest test images (of {len(images)})</h3><table><tr><th>Image</th><th>Feature mean IoU</th>"
+            f"<th>Pixel accuracy</th>" + "".join(f"<th>{html.escape(n)} area % true / predicted</th>" for n in names[1:])
+            + f"</tr>{img_rows}</table><p>Look at the overlays of these images first. All per-image scores: "
+            "<code>evaluation/per_image.csv</code>.</p>" + conf_html)
+
+
 def build_report(run: RunDir, review: str = "unreviewed") -> str:
     info, status = run.info(), run.status()
     cfg = info.get("config", {})
@@ -116,6 +167,7 @@ Checkpoint: best validation epoch {_f((evaluation or {}).get('checkpoint_epoch')
 pixel accuracy {_f(metrics.get('pixel_accuracy'))}, evaluated pixels {_f(metrics.get('evaluated_pixels'))}.</p>
 <table><tr><th>Class</th><th>IoU</th><th>Dice</th><th>Precision</th><th>Recall</th><th>True pixels</th>
 <th>Predicted pixels</th></tr>{rows}</table>
+<h2>Accuracy details</h2>{accuracy_html(evaluation)}
 <h2>Run check</h2><ul>{diag}</ul>
 <h2>Training</h2><div class="grid">{loss_chart}{iou_chart}</div>
 <table><tr><th>Epoch</th><th>Training loss</th><th>Validation loss</th><th>Validation mIoU (features)</th></tr>{hist_rows}</table>

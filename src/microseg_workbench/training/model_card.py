@@ -82,6 +82,10 @@ def build_model_card(run: RunDir) -> dict[str, Any]:
                     "pixel_accuracy": metrics.get("pixel_accuracy"),
                     "per_class": [{k: c[k] for k in ("name", "iou", "dice", "precision", "recall", "true_pixels")}
                                   for c in metrics.get("per_class", [])],
+                    "boundary_f1_foreground": (evaluation.get("accuracy") or {}).get("mean_boundary_f1_foreground"),
+                    "area_fractions": [{k: c[k] for k in ("name", "area_fraction_true", "area_fraction_pred",
+                                                           "boundary_f1")}
+                                       for c in (evaluation.get("accuracy") or {}).get("per_class", [])],
                     "ground_truth": evaluation.get("ground_truth")},
         "diagnostics": diagnostics,
         "observations": read_notes(run),

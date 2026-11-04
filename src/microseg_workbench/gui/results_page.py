@@ -103,6 +103,9 @@ class ResultsPage(QWidget):
         self.stats_busy = False
         tabs = QTabWidget()
         tabs.addTab(self.metrics, "Per-class test metrics")
+        self.accuracy_view = QTextEdit()
+        self.accuracy_view.setReadOnly(True)
+        tabs.addTab(self.accuracy_view, "Accuracy details")
         tabs.addTab(overlays, "Test overlays")
         tabs.addTab(self.history, "Training history")
         tabs.addTab(stats, "Feature statistics")
@@ -237,6 +240,7 @@ class ResultsPage(QWidget):
 
         self._show_notes(run)
         self._show_card(run)
+        self._show_accuracy(report)
 
         marks = {"ok": ("&#10003;", "#1a7f37"), "info": ("&#8505;", "#1f5fae"), "warn": ("&#9888;", "#9a5b00"),
                  "block": ("&#10007;", "#b42318")}
@@ -249,6 +253,16 @@ class ResultsPage(QWidget):
             for col, v in enumerate([str(e["epoch"]), _f(e["train_loss"]), _f(e["val_loss"]),
                                      _f(e["val_mean_iou_foreground"])]):
                 self.history.setItem(r, col, QTableWidgetItem(v))
+
+    def _show_accuracy(self, evaluation: dict | None) -> None:
+        from ..training.report import accuracy_html
+
+        if not evaluation:
+            self.accuracy_view.setHtml("<p>No test results yet.</p>")
+            return
+        style = "<style>td,th{padding:2px 6px;border:1px solid #ccc} th{background:#f4f4f2;text-align:left}</style>"
+        self.accuracy_view.setHtml(style + accuracy_html(evaluation) +
+                                   "<p style='color:#6b6b6b'>Also in the exported report; scores are unreviewed.</p>")
 
     def _show_card(self, run: RunDir) -> None:
         import html as _html
@@ -281,7 +295,8 @@ class ResultsPage(QWidget):
             row("Annotation source", ((data.get("annotation_source") or {}).get("tool") or {}).get("id", "folder")
                 + (" - contains unapproved masks" if data.get("contains_unapproved_annotations") else "")),
             row("Test results", f"{res.get('split')} split: mean IoU {_f4(res.get('mean_iou'))}, feature IoU "
-                                f"{_f4(res.get('mean_iou_foreground'))}"),
+                                f"{_f4(res.get('mean_iou_foreground'))}, boundary F1 (features) "
+                                f"{_f4(res.get('boundary_f1_foreground'))}"),
             row("Review", _plain(self._review_banner(run))),
             row("Software", f"{(c['training'].get('tool') or {}).get('id')} {(c['training'].get('tool') or {}).get('version')}"
                             f", torch {(c['training'].get('environment') or {}).get('torch')}"),
