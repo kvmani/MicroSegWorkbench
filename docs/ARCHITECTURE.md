@@ -308,7 +308,8 @@ image and class, warnings).
 ### AD-30 Installation self-test for roll-out
 `selftest.run_selftest` exercises the real code paths on tiny synthetic data inside a temporary folder of the
 workspace: software, compute device, disk, validation + dataset version, a 3-epoch training with evaluation on the
-chosen device, segmentation, CPU reproducibility, and - when a share is configured - publish/download/verify through a
-temporary `SharedStore` created inside the share (real records untouched, removed afterwards). Results are
+chosen device, segmentation, CPU reproducibility, a read-only share check (records listed, one stored blob re-hashed; researchers normally may
+not create or delete at the share root), and - only with `share_write` (IT, `--share-write`) - publish/download/
+verify through a temporary `SharedStore` created inside the share (real records untouched, removed afterwards). Results are
 PASS/WARN/FAIL/SKIP with plain reasons; a text report is saved in `<workspace>/selftest-reports/` for the sign-off in
 `docs/ROLLOUT.md`. Available as `msw selftest` and *Help -> Check this installation*.

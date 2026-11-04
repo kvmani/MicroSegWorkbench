@@ -641,7 +641,7 @@ def cmd_selftest(args: argparse.Namespace) -> int:
     ws = _ws(args)
     share = Path(args.share) if args.share else (CollabSettings.load(ws).share_root() if not args.no_share else None)
     print("MicroSegWorkbench self-test (synthetic data, about a minute)...")
-    result = run_selftest(ws, share=share, device=args.device, keep=args.keep,
+    result = run_selftest(ws, share=share, device=args.device, keep=args.keep, share_write=args.share_write,
                           progress=lambda m: print("  " + m) if m.startswith("[") else None)
     print()
     print(result.text())
@@ -659,6 +659,9 @@ def cmd_gui(args: argparse.Namespace) -> int:
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(prog="msw", description="MicroSegWorkbench: microstructure segmentation workbench")
     p.add_argument("--workspace", help="workspace folder (default: $MSW_WORKSPACE or ~/MicroSegWorkbench-workspace)")
+    from . import __version__
+
+    p.add_argument("--version", action="version", version=f"MicroSegWorkbench {__version__}")
     sub = p.add_subparsers(dest="command", required=True)
 
     s = sub.add_parser("demo-data", help="write synthetic micrographs and masks")
@@ -704,6 +707,8 @@ def build_parser() -> argparse.ArgumentParser:
     s = sub.add_parser("selftest", help="check that this computer (and the shared folder) is ready - for roll-out")
     s.add_argument("--share", help="shared folder to test (default: the one configured for this workspace)")
     s.add_argument("--no-share", action="store_true", help="skip the shared-folder check")
+    s.add_argument("--share-write", action="store_true",
+                   help="IT, once per shared folder: also publish/download through a temporary folder in it")
     s.add_argument("--device", default="auto", choices=["auto", "cpu", "cuda"])
     s.add_argument("--keep", action="store_true", help="keep the temporary self-test folder for inspection")
     s.set_defaults(func=cmd_selftest)

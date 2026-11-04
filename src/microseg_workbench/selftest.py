@@ -2,8 +2,9 @@
 
 Runs the real code paths on tiny SYNTHETIC data in a temporary folder inside the workspace: device detection, data
 validation, dataset version, a short training run on the chosen device, evaluation, prediction, CPU
-reproducibility and - when a shared folder is given - publishing and downloading through a temporary store inside
-that folder (the real records are never touched). Everything temporary is removed afterwards unless ``keep``.
+reproducibility, reading the shared folder (record listing and one stored file's fingerprint) and - for IT, with
+``share_write`` - publishing and downloading through a temporary store inside that folder (the real records are
+never touched). Everything temporary is removed afterwards unless ``keep``.
 
 Each check is PASS, WARN (works, but needs attention), FAIL or SKIP. A text report is saved in the workspace
 (``selftest-reports/``) for the roll-out sign-off.
@@ -60,7 +61,9 @@ class SelfTest:
 
 
 def run_selftest(workspace: Workspace, share: Path | None = None, device: str = "auto", keep: bool = False,
-                 progress: Callable[[str], None] | None = None) -> SelfTest:
+                 progress: Callable[[str], None] | None = None, share_write: bool = False) -> SelfTest:
+    """``share_write`` also publishes and downloads through a temporary store inside ``share`` (IT, once per
+    share: needs the right to create and delete folders there, which researchers normally do not have)."""
     result = SelfTest()
     say = progress or (lambda _m: None)
 
@@ -197,13 +200,31 @@ def run_selftest(workspace: Workspace, share: Path | None = None, device: str = 
             return FAIL, f"two identical CPU runs gave different losses ({losses[0]} vs {losses[1]})"
         return PASS, "two identical CPU runs gave identical results"
 
-    def shared() -> tuple[str, str]:
+    def shared_read() -> tuple[str, str]:
         from .collab.share import SharedStore
 
         if share is None:
-            return SKIP, "no shared folder given (msw selftest --share PATH, or configure one in step 6)"
+            return SKIP, "no shared folder configured (step 6, or msw selftest --share PATH)"
         if not Path(share).exists():
-            return FAIL, f"{share} is not reachable from this computer (mapped drive? permissions?)"
+            return FAIL, f"{share} is not reachable from this computer (mapped drive? permissions? network?)"
+        store = SharedStore.open(Path(share))
+        datasets, runs = store.list_datasets(), store.list_runs()
+        sample = next((r for r in runs + datasets if r.get("files")), None)
+        if sample is not None:
+            rel, digest = sorted(sample["files"].items())[0]
+            if not store.blobs.verify(digest):
+                return FAIL, f"stored file {rel} of {sample.get('run_id') or sample.get('dataset_id')} is missing " \
+                             "or damaged - tell the administrator (msw share check)"
+        return PASS, (f"{share}: {len(datasets)} dataset version(s) and {len(runs)} model(s) readable"
+                      + ("; one stored file verified" if sample is not None else ""))
+
+    def shared_write() -> tuple[str, str]:
+        from .collab.share import SharedStore
+
+        if share is None or not Path(share).exists():
+            return SKIP, "no reachable shared folder"
+        if not share_write:
+            return SKIP, "write test is for IT, once per shared folder: msw selftest --share-write"
         probe_root = Path(share) / f".selftest-{platform.node()}-{uuid.uuid4().hex[:8]}"
         try:
             store = SharedStore.create(probe_root)
@@ -218,14 +239,17 @@ def run_selftest(workspace: Workspace, share: Path | None = None, device: str = 
                 return FAIL, f"shared files failed verification: {problems[:2]}"
         finally:
             shutil.rmtree(probe_root, ignore_errors=True)
-        return PASS, f"publish, verified download and clean-up work in {share} (temporary folder, real records untouched)"
+        if probe_root.exists():
+            return WARN, f"publish and download work, but the temporary folder {probe_root} could not be removed"
+        return PASS, "publish, verified download and clean-up work (temporary folder; real records untouched)"
 
     check("Software", software) and check("Compute device", compute)
     try:
+        check("Shared folder (read)", shared_read)
         if check("Workspace disk", disk) and check("Data validation and dataset version", data):
             if check("Training and evaluation", train):
                 check("Segmenting new images", predict)
-                check("Shared folder", shared)
+                check("Shared folder (write test)", shared_write)
             check("Reproducibility (CPU)", reproducible)
     finally:
         if not keep:

@@ -53,8 +53,9 @@ First start:
 2. Connect the shared folder (step 6), then run the installation check: *Help -> Check this installation*, or
    `%LOCALAPPDATA%\MicroSegWorkbench\venv\Scripts\python -m microseg_workbench selftest` (about a minute).
    It trains, evaluates and segments tiny synthetic images on this computer, checks GPU, disk and reproducibility,
-   and publishes/downloads through a temporary folder inside the shared folder (removed afterwards). Expect
-   **RESULT: READY**; keep the report from `<workspace>\selftest-reports\` for the roll-out sign-off
+   and reads the shared folder (records and one stored file's fingerprint). Once per shared folder, IT adds
+   `--share <share> --share-write` (needs create/delete rights) to also publish and download through a temporary
+   folder inside it (removed afterwards; real records untouched). Expect **RESULT: READY**; keep the report from `<workspace>\selftest-reports\` for the roll-out sign-off
    ([ROLLOUT](ROLLOUT.md)).
 3. Step 1 -> *Create demo data* -> step 3 -> *Start training* shows the whole workflow in a few minutes.
 

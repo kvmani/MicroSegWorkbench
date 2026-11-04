@@ -1,0 +1,402 @@
+{
+ "unet_params": "117,107",
+ "seg_params": "462,211",
+ "unet_iou": "0.995",
+ "seg_iou": "0.860",
+ "unet_epochs": 25,
+ "seg_epochs": 40,
+ "cli": [
+  "> msw models",
+  "run-20261103-093320-629a63  [APPROVED]  U-Net (convolutional)",
+  "   data zr-hydride-15e6ce90f138  test feature IoU 0.9949",
+  "   (here + shared)",
+  "",
+  "> msw predict run-20261103-093320-629a63",
+  "      S:\\micrographs\\Zr-hydride-batch-02-unlabelled",
+  "      --out C:\\Users\\carol\\results\\batch-02",
+  "Downloading model ... (only if not here yet)",
+  "[1/9] B2-S01_0001.png",
+  "  ...",
+  "[9/9] B2-S09_0001-overexposed.png",
+  "WARNING B2-S09_0001-overexposed.png: the image is",
+  "  clearly brighter than every training image (mean",
+  "  brightness 0.85; training 0.58-0.71); check the",
+  "  imaging conditions or retrain with such images",
+  "9 prediction(s) written to C:\\Users\\carol\\results\\",
+  "  batch-02  [UNREVIEWED]",
+  "",
+  "> msw compare-image IMAGE RUN RUN --out side.png",
+  "> msw check-run RUN      > msw report RUN"
+ ],
+ "callouts": {
+  "tour": [
+   [
+    1,
+    0.115,
+    0.16
+   ],
+   [
+    2,
+    0.23,
+    0.063
+   ],
+   [
+    3,
+    0.975,
+    0.135
+   ],
+   [
+    4,
+    0.85,
+    0.935
+   ],
+   [
+    5,
+    0.745,
+    0.022
+   ]
+  ],
+  "data_problems": [
+   [
+    1,
+    0.03,
+    0.04
+   ],
+   [
+    2,
+    0.95,
+    0.37
+   ],
+   [
+    3,
+    0.32,
+    0.9
+   ],
+   [
+    4,
+    0.7,
+    0.21
+   ]
+  ],
+  "data_ready": [
+   [
+    1,
+    0.5,
+    0.05
+   ],
+   [
+    2,
+    0.32,
+    0.37
+   ],
+   [
+    3,
+    0.55,
+    0.88
+   ]
+  ],
+  "dataset_version": [
+   [
+    1,
+    0.96,
+    0.11
+   ],
+   [
+    2,
+    0.85,
+    0.76
+   ],
+   [
+    3,
+    0.9,
+    0.9
+   ]
+  ],
+  "health_data": [
+   [
+    1,
+    0.97,
+    0.38
+   ]
+  ],
+  "health_train": [
+   [
+    1,
+    0.97,
+    0.7
+   ],
+   [
+    2,
+    0.52,
+    0.93
+   ]
+  ],
+  "preprocess": [
+   [
+    1,
+    0.49,
+    0.9
+   ],
+   [
+    2,
+    0.62,
+    0.11
+   ],
+   [
+    3,
+    0.985,
+    0.9
+   ]
+  ],
+  "augment_builder": [
+   [
+    1,
+    0.66,
+    0.065
+   ],
+   [
+    2,
+    0.235,
+    0.17
+   ],
+   [
+    3,
+    0.14,
+    0.34
+   ],
+   [
+    4,
+    0.5,
+    0.93
+   ]
+  ],
+  "augment_steps": [
+   [
+    1,
+    0.4,
+    0.55
+   ]
+  ],
+  "augment_check": [
+   [
+    2,
+    0.11,
+    0.15
+   ],
+   [
+    3,
+    0.34,
+    0.25
+   ]
+  ],
+  "train_setup": [
+   [
+    1,
+    0.985,
+    0.075
+   ],
+   [
+    2,
+    0.985,
+    0.25
+   ],
+   [
+    3,
+    0.985,
+    0.62
+   ],
+   [
+    4,
+    0.985,
+    0.78
+   ]
+  ],
+  "train_advanced": [
+   [
+    2,
+    0.985,
+    0.55
+   ]
+  ],
+  "train_live": [
+   [
+    1,
+    0.55,
+    0.045
+   ],
+   [
+    2,
+    0.48,
+    0.22
+   ],
+   [
+    3,
+    0.8,
+    0.33
+   ],
+   [
+    4,
+    0.33,
+    0.42
+   ]
+  ],
+  "train_resources": [
+   [
+    1,
+    0.985,
+    0.51
+   ],
+   [
+    2,
+    0.68,
+    0.58
+   ],
+   [
+    3,
+    0.5,
+    0.82
+   ]
+  ],
+  "results": [
+   [
+    1,
+    0.42,
+    0.035
+   ],
+   [
+    2,
+    0.42,
+    0.32
+   ],
+   [
+    3,
+    0.42,
+    0.86
+   ]
+  ],
+  "results_overlays": [
+   [
+    1,
+    0.335,
+    0.2
+   ]
+  ],
+  "results_observations": [
+   [
+    1,
+    0.95,
+    0.13
+   ]
+  ],
+  "results_card": [
+   [
+    2,
+    0.95,
+    0.1
+   ]
+  ],
+  "compare_scores": [
+   [
+    1,
+    0.29,
+    0.06
+   ],
+   [
+    2,
+    0.985,
+    0.25
+   ],
+   [
+    3,
+    0.62,
+    0.02
+   ]
+  ],
+  "compare_same_image": [
+   [
+    1,
+    0.66,
+    0.12
+   ],
+   [
+    2,
+    0.63,
+    0.2
+   ],
+   [
+    3,
+    0.93,
+    0.2
+   ],
+   [
+    4,
+    0.985,
+    0.87
+   ]
+  ],
+  "share_connect": [
+   [
+    1,
+    0.985,
+    0.37
+   ]
+  ],
+  "share_runpub": [
+   [
+    2,
+    0.78,
+    0.4
+   ],
+   [
+    3,
+    0.53,
+    0.8
+   ]
+  ],
+  "share_review_panel": [
+   [
+    2,
+    0.97,
+    0.12
+   ],
+   [
+    3,
+    0.6,
+    0.7
+   ]
+  ],
+  "share_review_table": [
+   [
+    4,
+    0.36,
+    0.62
+   ]
+  ],
+  "share_fetch": [
+   [
+    1,
+    0.22,
+    0.15
+   ],
+   [
+    2,
+    0.94,
+    0.8
+   ]
+  ],
+  "carol_results": [
+   [
+    3,
+    0.04,
+    0.1
+   ]
+  ],
+  "help": [
+   [
+    1,
+    0.3,
+    0.03
+   ]
+  ]
+ }
+}

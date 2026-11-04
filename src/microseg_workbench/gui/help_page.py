@@ -227,8 +227,9 @@ before trusting small differences.</p>
 <h3>Checking an installation</h3>
 <p>Press <i>Check this installation</i> at the bottom of this page (or run <code>msw selftest</code>): in about a
 minute the workbench trains, evaluates and segments tiny synthetic images on this computer, checks the GPU, the disk,
-reproducibility and - if configured - the shared folder (inside a temporary folder that is removed again). The
-report is saved in the workspace folder <code>selftest-reports</code>; IT uses it to sign off a workstation.</p>
+reproducibility and - if configured - that the shared folder can be read (nothing is written there). The report is
+saved in the workspace folder <code>selftest-reports</code>; IT uses it to sign off a workstation. IT also runs
+<code>msw selftest --share-write</code> once per shared folder to test publishing.</p>
 
 <h3>Feature statistics (hydrides)</h3>
 <p>In <b>4 Results</b>, the <i>Feature statistics</i> tab compares ground truth and prediction on the test images for

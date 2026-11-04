@@ -28,10 +28,14 @@ sign-off checklist and the support arrangements.
 2. Create and initialise the shared folder, set permissions (create but not modify/delete for researchers),
    include it in the file-server backup ([DEPLOYMENT section 3](DEPLOYMENT.md)).
 3. Optional: install the metadata service on the VM, create user tokens, schedule the SQLite backup (section 4).
-4. Install on the first GPU workstation (`install.ps1`), connect the shared folder, then run
+4. Once per shared folder, with an account that may create and delete folders in it:
+   `msw selftest --share <share> --share-write` - publishes and downloads through a temporary folder inside the
+   share (removed afterwards; real records untouched). This proves the file server supports what publishing needs.
+5. Install on the first GPU workstation (`install.ps1`), connect the shared folder, then run
    `msw selftest` (or *Help -> Check this installation*). Expected: **RESULT: READY**, Compute device **PASS**
-   with the GPU named, Shared folder **PASS**. Keep the saved report (`<workspace>\selftest-reports\`).
-5. Repeat step 4 on every pilot workstation; on CPU-only machines the device check is a WARN, which is acceptable
+   with the GPU named, Shared folder (read) **PASS**. This check only reads the share. Keep the saved report
+   (`<workspace>\selftest-reports\`).
+6. Repeat step 5 on every pilot workstation; on CPU-only machines the device check is a WARN, which is acceptable
    for segmenting images but not for training real models.
 
 ## Phase B - pilot (2-3 users, 2-4 weeks)
@@ -68,6 +72,7 @@ All must hold:
 |---|---|---|---|
 | 1 | Wheelhouse built and stored with its `constraints-tested.txt` | file list | |
 | 2 | Share initialised, permissions set, in backup | `msw share status` from two PCs; IT backup report | |
+| 2a | Share supports publishing | `msw selftest --share-write` report: write test PASS | |
 | 3 | Each workstation self-test READY | saved `selftest-reports\*.txt` | |
 | 4 | GPU used on GPU workstations | self-test "Compute device: PASS ... GPU" | |
 | 5 | Real dataset version created from real images and masks | dataset id, Data step shows no errors | |
@@ -80,7 +85,7 @@ All must hold:
 ## Support and feedback
 - First contact: the named pilot user; then the owner.
 - An issue report should contain: what you did, what you expected, the message shown, the **run id** or dataset
-  id, the app version (Help title / `msw --help`), and for installation problems the latest self-test report.
+  id, the app version (window title, or `msw --version`), and for installation problems the latest self-test report.
 - Useful files to attach: `runs\<run>\status.json`, `events.jsonl`, the exported run report; never send images
   that may not leave the office.
 - Collect reports in one place (an issue list or a shared document) and review them weekly during the pilot.
