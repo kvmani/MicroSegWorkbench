@@ -94,6 +94,22 @@ def test_same_seed_reproduces_losses(workspace_with_dataset):
     assert losses(a) != losses(c)
 
 
+def test_validation_only_training_warns_about_generalization(synthetic_folder, tmp_path):
+    from microseg_workbench.training.diagnostics import diagnose_run
+    from microseg_workbench.training.report import build_report
+
+    ws = Workspace(tmp_path / "ws").ensure()
+    version = create_dataset_version(validate_folder(synthetic_folder, DEFAULT_GROUP_REGEX),
+                                     SplitConfig(train=0.8, val=0.2, test=0), ws.datasets_dir, "no-test")
+    run = run_training(tiny(version.dataset_id, epochs=1), ws)
+    report = json.loads((run.evaluation / "evaluation.json").read_text())
+    assert report["split"] == "val" and report["metrics"] is not None
+    findings = diagnose_run(run)
+    assert not any(lv == "ok" for lv, _ in findings)
+    assert any(lv == "warn" and "independent test" in message for lv, message in findings)
+    assert "No independent test result" in build_report(run)
+
+
 def test_cancel_stops_gracefully(workspace_with_dataset):
     ws, version = workspace_with_dataset
     holder = {}

@@ -38,6 +38,14 @@ python -m pytest -q          # tests (real tiny CPU training; no GPU or network 
 Workspace folder (datasets and runs) defaults to `~/MicroSegWorkbench-workspace`; override with
 `--workspace` or the `MSW_WORKSPACE` environment variable.
 
+For a first experiment, use **Quick CPU**, inspect the prediction overlays and read the Run check before
+trying a larger network. In Advanced mode, **Repeat with seeds** measures variability with all settings
+captured when Start is pressed; edits during training apply to the next series. Compare the finished runs
+in step 5. Keep whole specimens in separate train/validation/test groups: validation chooses the checkpoint,
+while a held-out test split estimates generalization. If no test split exists, Run check warns that the
+reported validation scores are not independent test evidence. The best checkpoint uses validation foreground
+IoU, which can peak at a different epoch from the lowest validation loss.
+
 ### Command line
 | Command | Purpose |
 |---|---|

@@ -1,5 +1,12 @@
 # Changelog
 
+## Unreleased
+- Seed repeats in the desktop app capture one configuration at Start; editing controls while a series runs
+  cannot silently change its later experiments. The tooltip explains when edits take effect.
+- Run check distinguishes validation-only/unknown evaluation from independent test evidence, labels class
+  and accuracy findings with the actual split, and explains checkpoint selection by foreground IoU rather
+  than claiming that the checkpoint necessarily precedes a validation-loss increase.
+
 ## 1.0.0rc1 - release candidate for the office pilot
 - Accuracy details on the test set: boundary F1 (1 px tolerance), true vs predicted area fraction per class and
   their difference, weakest images, confusion table (Results tab *Accuracy details*, run report, `msw evaluate`,

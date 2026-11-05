@@ -19,6 +19,16 @@ def diagnose_run(run: RunDir) -> list[Finding]:
     eval_path = run.evaluation / "evaluation.json"
     evaluation = json.loads(eval_path.read_text()) if eval_path.exists() else {}
     metrics = evaluation.get("metrics") or {}
+    split = evaluation.get("split")
+    split_label = {"test": "test", "val": "validation"}.get(split, "evaluation")
+    if split != "test":
+        findings.append(("warn", "No independent test result is available. " +
+                         ("These validation images also guide checkpoint selection; their scores are not an "
+                          "independent measure of generalization. Reserve separate specimen groups for testing."
+                          if split == "val" else
+                          "The evaluation split is unknown; evaluate on a held-out test split before judging generalization.")))
+    elif not metrics:
+        findings.append(("warn", "No test metrics are available; evaluate the best checkpoint before judging quality."))
 
     val = [(e["epoch"], e["val_loss"]) for e in history if e.get("val_loss") is not None]
     train = [(e["epoch"], e["train_loss"]) for e in history if e.get("train_loss") is not None]
@@ -28,8 +38,9 @@ def diagnose_run(run: RunDir) -> list[Finding]:
         train_at_best = dict(train).get(best_epoch, train[0][1])
         if best_epoch <= val[-1][0] - 3 and last_val > 1.2 * best_loss and last_train < train_at_best:
             findings.append(("warn", f"Overfitting: validation loss was lowest at epoch {best_epoch} and rose "
-                                     f"afterwards while training loss kept falling. The best checkpoint (used for "
-                                     "the results) is from before; next time try early stopping, stronger "
+                                     "afterwards while training loss kept falling. Checkpoint selection uses "
+                                     "validation foreground IoU, so the selected epoch may differ from the lowest-loss "
+                                     "epoch. Next time try early stopping, stronger "
                                      "augmentation or more training images."))
     scores = [(e["epoch"], e.get("val_mean_iou_foreground")) for e in history
               if e.get("val_mean_iou_foreground") is not None]
@@ -44,15 +55,15 @@ def diagnose_run(run: RunDir) -> list[Finding]:
                                  "improving."))
     for c in metrics.get("per_class", [])[1:]:
         if c["true_pixels"] and (c["iou"] or 0) == 0:
-            findings.append(("warn", f"The model never finds class '{c['name']}' on the test images. Use the "
+            findings.append(("warn", f"The model never finds class '{c['name']}' on the {split_label} images. Use the "
                                      "Cross-entropy + Dice loss, train longer, or add images containing it."))
         elif 0 < c["true_pixels"] < 500:
-            findings.append(("info", f"Class '{c['name']}' has only {c['true_pixels']} test pixels; its score is "
+            findings.append(("info", f"Class '{c['name']}' has only {c['true_pixels']} {split_label} pixels; its score is "
                                      "uncertain."))
-    findings += _accuracy_findings(evaluation.get("accuracy"), metrics)
+    findings += _accuracy_findings(evaluation.get("accuracy"), metrics, split_label)
     best_val = max((s for _, s in scores), default=None)
     test = metrics.get("mean_iou_foreground")
-    if best_val is not None and test is not None and best_val - test > 0.15:
+    if split == "test" and best_val is not None and test is not None and best_val - test > 0.15:
         findings.append(("warn", f"The test score ({test:.2f}) is much lower than the best validation score "
                                  f"({best_val:.2f}). Validation images may not represent the test specimens; check "
                                  "the groups and consider more varied training data."))
@@ -68,7 +79,7 @@ AREA_ABSOLUTE_LIMIT = 0.005  # ... and more than 0.5 percentage points
 WEAK_IMAGE_GAP = 0.2  # an image this far below the average feature IoU is pointed out
 
 
-def _accuracy_findings(acc: dict[str, Any] | None, metrics: dict[str, Any]) -> list[Finding]:
+def _accuracy_findings(acc: dict[str, Any] | None, metrics: dict[str, Any], split_label: str = "test") -> list[Finding]:
     """Biased area fractions, misplaced boundaries and unusually weak images, in plain words."""
     if not acc:
         return []
@@ -80,7 +91,7 @@ def _accuracy_findings(acc: dict[str, Any] | None, metrics: dict[str, Any]) -> l
             word = "over" if err > 0 else "under"
             out.append(("warn", f"The model {word}estimates the area fraction of '{c['name']}': "
                                 f"{100 * c['area_fraction_pred']:.2f} % predicted vs {100 * true:.2f} % true on the "
-                                "test images. Area fractions measured with this model would be biased."))
+                                f"{split_label} images. Area fractions measured with this model would be biased."))
         f1 = c["boundary_f1"]
         if f1 is not None and f1 < 0.5 and (iou.get(c["name"]) or 0) >= 0.6:
             out.append(("info", f"Boundaries of '{c['name']}' are often more than {acc['boundary_tolerance_px']} px "
@@ -91,7 +102,7 @@ def _accuracy_findings(acc: dict[str, Any] | None, metrics: dict[str, Any]) -> l
         mean = sum(i["mean_iou_foreground"] for i in scored) / len(scored)
         worst = scored[0]
         if worst["mean_iou_foreground"] < mean - WEAK_IMAGE_GAP:
-            out.append(("info", f"Test image {worst['stem']} scores much lower ({worst['mean_iou_foreground']:.2f}) "
+            out.append(("info", f"{split_label.title()} image {worst['stem']} scores much lower ({worst['mean_iou_foreground']:.2f}) "
                                 f"than the average ({mean:.2f}); look at its overlay - it may be unusual or its "
                                 "mask may need checking."))
     return out

@@ -1,6 +1,36 @@
 # Independent review ledger
 
-No independent reviews yet.
+Review records and their verification status follow. The 2026-11-05 entries are a combined review and
+implementation requested by the owner; they do not close earlier independent-review findings.
+
+## Training usability review — 2026-11-05
+
+Reviewed baseline `2624c8c31c49832c84de4578c52b4e0dd8b0efd6`, focusing on training controls,
+seed-repeat reproducibility and scientific explanations in Run check. Reviewer/implementer: Codex.
+
+- **RV-20261105-001 (Medium, confirmed): queued repeats reread live controls.**
+  `gui/train_page.py:_start_one` built each repeat from the current widgets. Editing seed, learning rate,
+  epochs or architecture during run 1 silently changed subsequent runs. The extended
+  `test_repeat_with_seeds_queue_and_compare_summary` failed before the fix. A deep snapshot at Start now
+  supplies every queued run, with only the seed incremented. The regression executes real CPU training,
+  changes controls mid-series, checks complete persisted configurations and the comparison summary.
+  **Addressed; automated verification, independent verification pending.**
+- **RV-20261105-002 (Medium, confirmed): validation-only scores called test evidence.**
+  `training/diagnostics.py:diagnose_run` unconditionally called evaluation metrics test scores and could
+  report healthy training even when the validation images had also selected the checkpoint. Added failing
+  probes for validation/unknown splits; diagnostics now warn about missing independent test evidence,
+  use the actual split in class/accuracy messages and restrict validation-to-test comparisons to test runs.
+  `test_validation_only_training_warns_about_generalization` exercises actual training, evaluation and HTML
+  reporting without a test split. **Addressed; automated verification, independent verification pending.**
+- **RV-20261105-003 (Low, confirmed): checkpoint explanation used the wrong criterion.**
+  The overfitting message claimed the chosen checkpoint preceded the validation-loss rise; the trainer
+  actually selects maximum validation foreground IoU. A divergent loss/IoU-history regression failed
+  before the fix; the message now explains the difference without changing selection or model behavior.
+  **Addressed; automated verification, independent verification pending.**
+
+Scope limits: this is a focused training review, not a new exhaustive scientific audit. No real office
+data, CUDA GPU, Windows workstation, office SMB share or optional HydrideSegmentation analysis was verified.
+Earlier review statuses remain unchanged. Full validation evidence is recorded in PROGRESS.md.
 
 Append findings; do not erase history. Suggested record:
 

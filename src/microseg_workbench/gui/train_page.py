@@ -10,6 +10,8 @@ from __future__ import annotations
 import json
 import os
 import sys
+from copy import deepcopy
+from dataclasses import replace
 from pathlib import Path
 from typing import Any, Callable
 
@@ -120,6 +122,7 @@ class TrainPage(QWidget):
         self.device_info_changed = None
         self.series_remaining = 0
         self.series_runs: list[str] = []
+        self._series_cfg = None
 
         self.dataset = QComboBox()
         self.network = QComboBox()
@@ -170,7 +173,8 @@ class TrainPage(QWidget):
         self.repeats = QSpinBox()
         self.repeats.setRange(1, 20)
         self.repeats.setToolTip("Train this many runs one after another with seeds seed, seed+1, ... to see how much "
-                                "the result depends on chance. Compare them in step 5 (mean and spread are shown).")
+                                "the result depends on chance. All settings are captured when Start is pressed; "
+                                "edits during training apply to the next series. Compare in step 5 (mean and spread).")
         self.patience = QSpinBox()
         self.patience.setRange(0, 1000)
         self.patience.setSpecialValueText("Off")
@@ -481,11 +485,10 @@ class TrainPage(QWidget):
 
     def _start_one(self, seed_offset: int) -> None:
         try:
-            cfg = self.build_config()
-            if seed_offset:
-                from dataclasses import replace
-
-                cfg = replace(cfg, seed=cfg.seed + seed_offset)
+            if not seed_offset:
+                self._series_cfg = deepcopy(self.build_config())
+            # A seed sweep is one experiment: edits to controls apply to the next series.
+            cfg = replace(self._series_cfg, seed=self._series_cfg.seed + seed_offset)
         except (TrainConfigError, AugmentConfigError, ValueError) as exc:
             self.ctx.error(self, "Cannot start training", str(exc))
             return

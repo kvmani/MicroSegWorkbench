@@ -369,10 +369,19 @@ def test_repeat_with_seeds_queue_and_compare_summary(app, tmp_path):
     train.epochs.setValue(1)
     train.repeats.setValue(3)
     train.start()
+    # Controls can be edited while training; the queued experiment must keep its original settings.
+    train.seed.setValue(987)
+    train.epochs.setValue(2)
+    train.lr.setValue(0.01)
+    train.network.setCurrentIndex(train.network.findData("segformer"))
     wait_until(app, lambda: len(train.series_runs) == 3 and train.final_state == "completed"
                and not train.is_running(), timeout=300)
     seeds = [RunDir(ws.runs_dir / r).info()["config"]["seed"] for r in train.series_runs]
     assert seeds == [1234, 1235, 1236]
+    configs = [RunDir(ws.runs_dir / r).info()["config"] for r in train.series_runs]
+    assert all(c["epochs"] == 1 and c["architecture"] == "unet" for c in configs)
+    assert all({k: v for k, v in c.items() if k != "seed"} ==
+               {k: v for k, v in configs[0].items() if k != "seed"} for c in configs)
     compare = win.compare_page
     compare.refresh()
     compare.set_checked(train.series_runs)

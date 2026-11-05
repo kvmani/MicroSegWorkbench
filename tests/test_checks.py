@@ -64,7 +64,7 @@ def make_run(tmp_path, epochs, per_class=None, status=None):
     if per_class is not None:
         (run.evaluation / "evaluation.json").write_text(json.dumps({"metrics": {
             "mean_iou_foreground": per_class.pop("_fg", 0.8), "per_class": per_class["rows"]},
-            "ground_truth": "as in dataset version"}))
+            "split": "test", "ground_truth": "as in dataset version"}))
     return run
 
 
@@ -88,6 +88,28 @@ def test_still_improving_dead_class_and_val_test_gap(tmp_path):
     text = " ".join(m for _, m in f)
     assert "Still improving" in text and "never finds class 'pore'" in text and "much lower" in text
     assert "ok" not in levels(f)
+
+
+@pytest.mark.parametrize("split", ["val", "unknown"])
+def test_diagnosis_does_not_call_non_test_scores_test_results(tmp_path, split):
+    run = make_run(tmp_path, [ep(i, 1 / i, 1 / i, 0.8) for i in range(1, 5)])
+    (run.evaluation / "evaluation.json").write_text(json.dumps({
+        "split": split, "metrics": {"mean_iou_foreground": 0.7, "per_class": [
+            {"name": "matrix", "true_pixels": 9000, "iou": 0.9},
+            {"name": "hydride", "true_pixels": 300, "iou": 0.6}]}}))
+    findings = diagnose_run(run)
+    assert "ok" not in levels(findings)
+    assert any(lv == "warn" and "independent test" in message for lv, message in findings)
+    assert not any("test pixels" in message or "healthy (test" in message for _, message in findings)
+
+
+def test_overfitting_does_not_claim_best_iou_checkpoint_is_at_lowest_loss(tmp_path):
+    history = [ep(1, 1.0, 0.5, 0.3), ep(2, 0.7, 0.3, 0.4), ep(3, 0.5, 0.4, 0.5),
+               ep(4, 0.3, 0.5, 0.6), ep(5, 0.2, 0.6, 0.7)]
+    findings = diagnose_run(make_run(tmp_path, history))
+    warning = next(m for lv, m in findings if lv == "warn" and "Overfitting" in m)
+    assert "foreground IoU" in warning
+    assert "from before" not in warning
 
 
 @pytest.mark.training

@@ -1,5 +1,36 @@
 # Working ledger — agent handoff
 
+## Cloud setup and training usability review — 2026-11-05
+- Owner requested cloud onboarding, then code review, thorough testing and improvements for beginner and
+  experienced microstructure-training users. Focused review of baseline `2624c8c` found three confirmed
+  issues (RV-20261105-001..003 in REVIEWS.md); fixes and regression tests are included in the commit
+  introducing this section. Owner explicitly authorized committing and pushing these verified changes to
+  main. This review/implementation does not close prior independent-review findings.
+- Seed-repeat GUI experiments now snapshot the complete starting configuration (including augmentation),
+  so editing controls during a run cannot change later repeats; only the seed increments. Tooltip and README
+  explain when edits apply. Regression performs actual queued training and checks persisted configs.
+- Run check warns when evaluation reuses validation or lacks a known test split; class/accuracy messages
+  identify the actual split. The overfitting explanation now matches the trainer's best foreground-IoU
+  criterion instead of claiming the chosen checkpoint preceded the loss rise. Training mathematics unchanged.
+- Cloud workflow: Python 3.12.14, editable package in `/workspace/.venvs/msw`, CPU torch 2.15.0+cpu,
+  repository-tested constrained NumPy/Pillow/PySide6/psutil/pytest. Data outside the checkout. Saved complete
+  `install_script` and `start_skill` in the environment draft; install script rerun succeeded, pip check clean.
+  The user still needs to review/save settings and publish; no fresh-task snapshot restoration was tested.
+- Final Linux CPU / Qt offscreen suite: **212 passed, 5 skipped in 109.15 s**. Two skips need optional
+  HydrideSegmentation analysis, three need an actual network share. Command: `QT_QPA_PLATFORM=offscreen
+  OMP_NUM_THREADS=2 MKL_NUM_THREADS=2 /workspace/.venvs/msw/bin/python -m pytest -q -ra`.
+  Local sockets require the cloud executor's approved network execution context; initial sandbox run had
+  202 passed, 5 skipped, 2 failures and 4 errors because service binds were denied. Rerun above resolved all.
+- Regression evidence before fixes: validation/unknown-split and checkpoint explanation probes: 3 failed;
+  edited-controls queued-training regression: 1 failed. After fixes: focused checks/accuracy/GUI: 18 passed;
+  full suite additionally includes real validation-only training and HTML-report regression.
+- `msw --workspace /workspace/msw-onboarding-data selftest` passed twice: real training/evaluation,
+  prediction and reproducibility, zero failures; CPU-only warning and share checks skipped. Optional saved
+  metadata-service startup verified with HTTP 200 `/api/health` and expected status/version, then stopped.
+- Limits: synthetic data and Linux only; real CUDA, Windows, interactive office desktop, office SMB, optional
+  HydrideSegmentation and scientific acceptance remain outstanding. No office credentials required here.
+  Next: independent verification of these fixes and office pilot acceptance under docs/ROLLOUT.md.
+
 ## Current status
 **All four roadmap phases are implemented (v0.4.0, 2026-10-31) and tested in a Linux sandbox on CPU with synthetic
 data, a local mock share, an in-process metadata service and the real HydrideSegmentation analysis code.**
