@@ -85,6 +85,7 @@ class ValidationReport:
     issues: list[Issue]
     group_regex: str
     provenance: dict[str, Any] | None = None
+    channel_policy: str = "native"
 
     @property
     def errors(self) -> list[Issue]:
@@ -141,7 +142,7 @@ def discover_pairs(folder: Path) -> tuple[list[PairRecord], list[Issue]]:
     return pairs, issues
 
 
-def validate_folder(folder: Path, group_regex: str) -> ValidationReport:
+def validate_folder(folder: Path, group_regex: str, channel_policy: str = "native") -> ValidationReport:
     """Check class map, pairing, shapes, mask values, channel consistency and duplicates."""
     folder = Path(folder)
     issues: list[Issue] = []
@@ -164,7 +165,7 @@ def validate_folder(folder: Path, group_regex: str) -> ValidationReport:
 
     for pair in pairs:
         try:
-            img = load_image(pair.image_path)
+            img = load_image(pair.image_path, channel_policy)
             raw = load_mask_values(pair.mask_path)
         except ImageReadError as exc:
             issues.append(Issue("error", "unreadable", str(exc), pair.stem))
@@ -242,7 +243,7 @@ def validate_folder(folder: Path, group_regex: str) -> ValidationReport:
             issues.append(Issue("warning", "provenance_missing",
                                 f"{len(missing)} image(s) have no provenance record (e.g. {missing[:3]})."))
     return ValidationReport(folder=folder, class_map=class_map, pairs=pairs, issues=issues, group_regex=group_regex,
-                            provenance=provenance)
+                            provenance=provenance, channel_policy=channel_policy)
 
 
 def plan_split(report: ValidationReport, config: SplitConfig) -> dict[str, str]:
@@ -254,6 +255,8 @@ def plan_split(report: ValidationReport, config: SplitConfig) -> dict[str, str]:
         assignment = {p.stem: (samples.get(p.stem) or {}).get("split") or "unassigned" for p in report.pairs if p.ok}
         check_fixed_splits(assignment, {p.stem: p.group for p in report.pairs if p.ok})
         return assignment
+    if config.source == "image":
+        return assign_splits({p.stem: 1 for p in report.pairs if p.ok}, config)
     sizes = Counter(p.group for p in report.pairs if p.ok)
     by_group = assign_splits(dict(sizes), config)
     return {p.stem: by_group[p.group] for p in report.pairs if p.ok}
@@ -280,6 +283,9 @@ def content_identity(name: str, class_map: dict[str, Any], split_config: dict[st
         row = {k: s[k] for k in ("stem", "group", "split", "image_sha256", "stored_mask_sha256")}
         if with_provenance:
             row["annotation"] = _annotation_identity(s.get("annotation_provenance"), s["stem"] in unapproved)
+        if s.get("channel_policy", "native") != "native":
+            row["channel_policy"] = s["channel_policy"]
+            row["source_image_sha256"] = s["source_image_sha256"]
         rows.append(row)
     content = {"class_map": class_map, "split_config": split_identity, "samples": rows}
     return f"{name}-{sha256_bytes(canonical_json(content).encode())[:12]}"
@@ -334,6 +340,8 @@ class DatasetVersion:
                                         set(m.get("unapproved_stems", [])), bool(m.get("identity_includes_annotation")))
         except (KeyError, TypeError) as exc:
             return [f"manifest is incomplete ({exc})"]
+        if any(s.get("channel_policy", "native") != m.get("channel_policy", "native") for s in self.samples()):
+            problems.append("channel policy differs between manifest and samples")
         if expected != self.dataset_id or self.root.name != self.dataset_id:
             problems.append("manifest.json was modified after the dataset version was created (content no longer "
                             "matches its id); recreate the dataset version from the source folder")
@@ -341,7 +349,7 @@ class DatasetVersion:
         for s in self.samples():
             spans.setdefault(s["group"], set()).add(s["split"])
         leaking = sorted(g for g, splits in spans.items() if len(splits) > 1)
-        if leaking:
+        if leaking and m["split_config"].get("source") != "image":
             problems.append(f"groups {leaking[:5]} appear in more than one split")
         for s in self.samples():
             for key, hkey in (("image_file", "image_sha256"), ("mask_file", "stored_mask_sha256")):
@@ -388,6 +396,14 @@ def create_dataset_version(report: ValidationReport, split_config: SplitConfig, 
             shutil.copyfile(pair.image_path, stage / image_rel)
             if sha256_file(stage / image_rel) != pair.image_sha256:
                 raise SourceChangedError(changed.format(pair.image_path.name))
+            stored_image_hash = pair.image_sha256
+            if report.channel_policy == "grayscale":
+                loaded = load_image(stage / image_rel, "grayscale")
+                if "rgb_to_grayscale_pillow_l_601" in loaded.notes:
+                    (stage / image_rel).unlink()
+                    image_rel = f"images/{pair.stem}.png"
+                    write_bytes_atomic(stage / image_rel, encode_png(loaded.array[..., 0]))
+                    stored_image_hash = sha256_file(stage / image_rel)
             mask_source = pair.mask_path.read_bytes()  # decode exactly the bytes whose hash was validated
             if sha256_bytes(mask_source) != pair.mask_sha256:
                 raise SourceChangedError(changed.format(pair.mask_path.name))
@@ -404,7 +420,9 @@ def create_dataset_version(report: ValidationReport, split_config: SplitConfig, 
                 "width": pair.width,
                 "channels": pair.channels,
                 "dtype": pair.dtype,
-                "image_sha256": pair.image_sha256,
+                "image_sha256": stored_image_hash,
+                "source_image_sha256": pair.image_sha256,
+                "channel_policy": report.channel_policy,
                 "source_mask_sha256": pair.mask_sha256,
                 "stored_mask_sha256": sha256_bytes(mask_bytes),
                 "class_pixels": {str(k): v for k, v in pair.class_pixels.items()},
@@ -425,6 +443,7 @@ def create_dataset_version(report: ValidationReport, split_config: SplitConfig, 
             "created_at": datetime.now(timezone.utc).isoformat(),
             "created_with": {"tool": TOOL_ID, "version": __version__, "python": platform.python_version()},
             "source_folder": str(report.folder),
+            "channel_policy": report.channel_policy,
             "class_map": class_map.to_dict(),
             "stored_mask_encoding": "indexed",
             "split_config": asdict(split_config),

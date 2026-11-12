@@ -30,8 +30,8 @@ class SplitConfig:
     source: str = "group"  # "group": seeded group split; "annotator": splits assigned in the annotation tool
 
     def __post_init__(self) -> None:
-        if self.source not in ("group", "annotator"):
-            raise SplitError("Split source must be 'group' or 'annotator'.")
+        if self.source not in ("group", "annotator", "image"):
+            raise SplitError("Split source must be 'group', 'image' or 'annotator'.")
 
     def fractions(self) -> dict[str, float]:
         total = self.train + self.val + self.test

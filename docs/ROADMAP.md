@@ -13,3 +13,7 @@ Each phase must end with executed tests, reviewed gaps, concise docs/ledger upda
   explanations for validation-only evaluation and checkpoint selection. Linux CPU/Qt regression coverage;
   office acceptance checks above remain outstanding.
 - [ ] **Release 1.0.0rc1 - office pilot:** *(prepared 2026-11-04: accuracy details, installation self-test, roll-out plan `docs/ROLLOUT.md`, beginner's guide)* Phase A install and self-test on office workstations and share, Phase B pilot with scientific validation, go/no-go, Phase C general roll-out.
+
+- [x] **Pilot import and preparation improvements — 2026-11-12:** deterministic collision recovery with
+  provenance, explicit grayscale policy before validation/inference, Random by image, dataset ID handoff.
+  Synthetic Linux CPU/Qt validation; Windows CI and office interactive/CUDA acceptance reported in PROGRESS.md.

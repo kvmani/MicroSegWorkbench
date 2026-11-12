@@ -29,3 +29,14 @@ Integrate through stable explicit contracts; none are required for standalone sy
 
 ## Development
 Deliver a real, minimal CPU-capable synthetic-data workflow before expanding. Architecture, libraries and detailed storage formats should be chosen by implementing agents based on evidence; keep components testable, documented and replaceable.
+
+## Pilot data preparation contract (2026-11-12)
+- OnlineAnnotator imports retain distinct records with colliding display stems, allocate Windows-safe names
+  deterministically on every platform, reserve original names before suffixes, and keep exact member paths
+  and original/output stems in provenance. Duplicate exact ZIP member references and hash failures abort.
+- Channel policy is explicit: native by default; optional grayscale applies before mixed-channel validation
+  and identically to preview/preparation. RGB uses Pillow L / ITU-R 601-2, lossless PNG; native single-channel
+  files retain bytes/bit depth. Source files, alignment and mask labels are preserved. Mixed bit depths are errors.
+  Dataset identity and model checkpoints carry the policy into inference; absent policy means native for legacy data.
+- Group splitting remains the default. Explicit seeded Random by image allows specimen overlap with a visible
+  warning and expected counts before creation. Full prepared IDs can be copied and are preselected for training.

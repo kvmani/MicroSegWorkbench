@@ -44,12 +44,14 @@ def _open(path: "Path | io.BytesIO") -> Image.Image:
         raise ImageReadError(f"Cannot read {_label(path)}: {exc}") from exc
 
 
-def load_image(path: Path) -> LoadedImage:
+def load_image(path: Path, channel_policy: str = "native") -> LoadedImage:
     """Load a micrograph as ``(H, W, C)`` uint8/uint16/float32 with C in {1, 3}.
 
     RGB images whose three channels are identical are reduced to one channel
     (lossless; recorded in ``notes``). Alpha channels are rejected rather than dropped.
     """
+    if channel_policy not in ("native", "grayscale"):
+        raise ImageReadError(f"Unknown channel policy {channel_policy!r}; choose native or grayscale.")
     img = _open(path)
     notes: list[str] = []
     mode = img.mode
@@ -78,6 +80,10 @@ def load_image(path: Path) -> LoadedImage:
         notes.append("identical_rgb_channels_reduced_to_grayscale")
     if arr.dtype not in (np.uint8, np.uint16, np.float32):
         raise ImageReadError(f"{path.name} has unsupported pixel type {arr.dtype}.")
+    if channel_policy == "grayscale" and arr.shape[2] == 3:
+        # Pillow's ITU-R 601-2 luma: rounded 0.299 R + 0.587 G + 0.114 B.
+        arr = np.asarray(Image.fromarray(arr).convert("L"))[:, :, None]
+        notes.append("rgb_to_grayscale_pillow_l_601")
     return LoadedImage(array=np.ascontiguousarray(arr), notes=tuple(notes))
 
 

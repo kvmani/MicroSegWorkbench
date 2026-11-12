@@ -274,3 +274,14 @@ Reviewer severities are kept above; the implementer's context-specific grading i
 design: Windows reserved-name/Unicode/symlink path suites, automatic repair of damaged shared blobs, a no-replace
 primitive for Linux CIFS mounts, multi-process stress tests for staging cleanup. Findings stay open for independent
 verification.
+
+## Pilot import/preparation implementation checks — 2026-11-12
+
+Owner-requested implementation on baseline `be5755c`; these checks are not an independent review or closure
+of prior findings. Checked the OnlineAnnotator export interface in `src/online_annotator/services/exports.py`
+in a read-only reference checkout. Confirmed original importer rejected case-only display names and ZIP reads
+could resolve duplicate exact member names silently. Added deterministic reserved-name allocation, exact member
+ambiguity errors and retained name/path provenance. Grayscale validation/preparation share one loader policy;
+source bytes are verified before conversion. Dataset identity includes non-native policy/source hashes; legacy
+native identity stays unchanged. Image-level splits are explicit and labelled; group-mode leakage checks remain.
+Regression evidence and platform gaps are recorded in PROGRESS.md. Independent scientific review remains open.

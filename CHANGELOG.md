@@ -1,6 +1,12 @@
 # Changelog
 
 ## Unreleased
+- OnlineAnnotator name collisions retain all pairs with deterministic Windows-safe names, reserved suffixes,
+  exact archive-member reads, ambiguity checks and original/output name/path provenance plus rename summaries.
+- Explicit grayscale channel policy in Data/Preprocess and CLI validation/preparation resolves mixed channels
+  before validation, preserves native single-channel depth, and travels with datasets and models into prediction.
+- Random by image split choice with count preview and specimen-overlap warning; copy prepared dataset IDs and
+  preselect the new version in Training. Synthetic 91-pair pilot regression runs in the Windows/Linux CI matrix.
 - Seed repeats in the desktop app capture one configuration at Start; editing controls while a series runs
   cannot silently change its later experiments. The tooltip explains when edits take effect.
 - Run check distinguishes validation-only/unknown evaluation from independent test evidence, labels class

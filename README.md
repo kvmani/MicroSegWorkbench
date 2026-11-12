@@ -107,6 +107,44 @@ Details: in-app Help and [ARCHITECTURE](docs/ARCHITECTURE.md).
 
 The new repository is independent. Do not modify these reference repositories without a separate explicit request.
 
+## Importing mixed-channel hydride data
+
+Import an OnlineAnnotator ZIP with **Data → Import OnlineAnnotator export** (or `msw import-oa bundle.zip`).
+Case-insensitive name collisions retain every record: manifest order determines which keeps its name;
+subsequent records receive `__2`, `__3`, …, skipping every original stem reserved anywhere in the bundle.
+The same naming applies on Linux and Windows. Reserved Windows device names and image names ending in
+`_mask` receive safe names too. The rename summary appears after import; `provenance.json` records each
+original/output stem and the exact image/mask member paths, annotation version, approval and assigned split.
+Ambiguous ZIP entries or failed SHA-256 checks abort the import; re-export the bundle rather than bypass checks.
+
+Native channels remain the default. For hydride data mixing grayscale and RGB micrographs, select
+**Convert micrographs to grayscale** in **Data**, then **Check folder** again. The same option is visible
+in **2 Preprocess**; changing it requires rechecking Data and creating a new dataset version. Validation,
+image previews and preparation use the same policy. RGB conversion uses Pillow `convert("L")`, ITU-R 601-2
+luma (rounded `0.299 R + 0.587 G + 0.114 B`), stored as lossless 8-bit PNG. Single-channel files are copied
+unchanged, preserving their bit depth; source files and masks are untouched. Dimensions and mask class
+values are preserved. Unsupported modes remain errors; a mix of uint16 grayscale and converted uint8 RGB
+still requires an explicit bit-depth decision and is rejected. There is no automatic rescaling.
+
+For the equivalent CLI workflow:
+
+```sh
+msw validate imported-folder --channel-policy grayscale
+msw --workspace workspace prepare imported-folder --name hydrides --channel-policy grayscale --split-source image --train 0.8 --val 0.1 --test 0.1 --seed 42
+```
+
+Group-based splitting remains the default. **Random by image** (`--split-source image`) uses the existing
+seeded splitter and previews counts before creation; 91 images at 80/10/10 produce 73 train, 9 validation
+and 9 test. Views from one specimen may span splits: these results are labelled and can overestimate
+performance on new specimens. OnlineAnnotator splits retain their group leakage checks.
+
+After creation, Data shows the full dataset ID and counts, offers **Copy dataset ID**, and preselects the
+version in **3 Training**. Versions prepared with the CLI are available in the GUI using the same workspace
+(refresh/re-enter Training if already open). Dataset manifests retain channel policy, source and stored
+image hashes, source paths and conversion notes; the policy participates in dataset identity. Checkpoints
+carry it into **Segment new images** and same-image model comparison, including RGB inputs to grayscale
+models. Older manifests/checkpoints without the policy continue to use native channels.
+
 ## Development
 See [ROADMAP](docs/ROADMAP.md), [working ledger](docs/PROGRESS.md), [architecture decisions](docs/ARCHITECTURE.md) and [review findings](docs/REVIEWS.md).
 

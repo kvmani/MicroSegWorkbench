@@ -400,7 +400,7 @@ class TrainPage(QWidget):
             self.start_btn.setEnabled(not self.blocking)
 
     def refresh(self) -> None:
-        current = self.dataset.currentData()
+        current = self.ctx.selected_dataset_id or self.dataset.currentData()
         self.dataset.clear()
         for v in list_dataset_versions(self.ctx.workspace.datasets_dir):
             counts = v.manifest["split_counts"]
@@ -408,6 +408,7 @@ class TrainPage(QWidget):
                                  f"test {counts['test']})", v.dataset_id)
         idx = self.dataset.findData(current)
         self.dataset.setCurrentIndex(idx if idx >= 0 else self.dataset.count() - 1)
+        self.ctx.selected_dataset_id = None
 
     def _fill_networks(self) -> None:
         from ..training.architectures import ARCHITECTURES

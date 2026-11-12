@@ -344,6 +344,7 @@ def _execute(run: RunDir, cfg: TrainConfig, workspace: Workspace, on_event: Even
                                                 "architecture_title": ARCHITECTURES[cfg.architecture].title,
                                                 "architecture_module": ARCHITECTURES[cfg.architecture].module},
                 "dataset": {"dataset_id": version.dataset_id,
+                            "channel_policy": version.manifest.get("channel_policy", "native"),
                             "manifest_sha256": sha256_file(version.root / MANIFEST_FILENAME),
                             "split_counts": {"train": len(train), "val": len(val), "test": test_count}},
                 "class_map": class_map.to_dict(),
@@ -442,6 +443,7 @@ def _execute(run: RunDir, cfg: TrainConfig, workspace: Workspace, on_event: Even
             meta = {"run_id": run.run_id, "epoch": epoch, "dataset_id": version.dataset_id,
                     "class_map": class_map.to_dict(), "normalization": cfg.normalization,
                     "preprocess": prep.to_dict(),
+                    "channel_policy": version.manifest.get("channel_policy", "native"),
                     "val_mean_iou_foreground": val_metrics["mean_iou_foreground"] if val_metrics else None}
             if improved:
                 save_checkpoint(run.checkpoints / "best.pt", model, meta)
@@ -540,6 +542,7 @@ def evaluate_run(run: RunDir, workspace: Workspace, device: torch.device | None 
         "metrics": metrics,
         "accuracy": accuracy,
         "preprocess": prep.to_dict(),
+        "channel_policy": version.manifest.get("channel_policy", "native"),
         "resolution": "metrics computed at original image resolution against original masks, excluding any "
                       "excluded border; prediction masks cover the analysed region only",
         "overlay_layout": f"image | ground truth | prediction (each panel at most {EVAL_PANEL_MAX_SIDE} px; display "

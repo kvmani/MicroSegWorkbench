@@ -22,6 +22,7 @@ from __future__ import annotations
 import hashlib
 import io
 import json
+import re
 import shutil
 import zipfile
 from dataclasses import dataclass, field
@@ -75,12 +76,18 @@ class _Source:
             raise OAImportError(f"{self.path} does not exist.")
 
     def read(self, name: str) -> bytes:
-        if ".." in Path(name).parts or name.startswith(("/", "\\")):
+        if ".." in Path(name).parts or "\\" in name or ":" in name or name.startswith("/"):
             raise OAImportError(f"Unsafe path in manifest: {name!r}")
         try:
             if self.zip is not None:
-                return self.zip.read(name)
-            return (self.path / name).read_bytes()
+                matches = [info for info in self.zip.infolist() if info.filename == name]
+                if len(matches) != 1:
+                    raise OAImportError(f"Archive member {name!r} is missing or ambiguous ({len(matches)} exact entries); re-export the bundle.")
+                return self.zip.read(matches[0])
+            member = self.path / name
+            if not member.resolve().is_relative_to(self.path.resolve()):
+                raise OAImportError(f"Unsafe path in manifest: {name!r}")
+            return member.read_bytes()
         except (KeyError, FileNotFoundError) as exc:
             raise OAImportError(f"File {name} listed in the manifest is missing from the bundle.") from exc
 
@@ -179,7 +186,7 @@ def import_bundle(source: Path, dest: Path, progress: Callable[[str], None] | No
     try:
         try:
             manifest = json.loads(src.read("manifest.json"))
-        except ValueError as exc:
+        except (json.JSONDecodeError, UnicodeDecodeError) as exc:
             raise OAImportError("manifest.json is not valid JSON.") from exc
         if manifest.get("schema") != OA_SCHEMA:
             raise OAImportError(f"Unsupported manifest schema {manifest.get('schema')!r}; expected {OA_SCHEMA!r}.")
@@ -196,12 +203,26 @@ def import_bundle(source: Path, dest: Path, progress: Callable[[str], None] | No
         records: dict[str, Any] = {}
         warnings: list[str] = []
         try:
-            seen: set[str] = set()
+            originals = [safe_stem(r.get("stem")) for r in manifest.get("images", [])]
+            reserved = {s.casefold() for s in originals}
+            used: set[str] = set()
+            renames = []
             for i, rec in enumerate(manifest.get("images", []), 1):
-                stem = safe_stem(rec.get("stem"))
-                if stem.lower() in seen:
-                    raise OAImportError(f"Image name {stem!r} occurs twice in the export.")
-                seen.add(stem.lower())
+                original = originals[i - 1]
+                # Reserve original names before suffix allocation; avoid image/mask filename overlap.
+                base = original.rstrip(".")
+                if re.match(r"^(CON|PRN|AUX|NUL|COM[1-9¹²³]|LPT[1-9¹²³]|CONIN\$|CONOUT\$)(?:\.|$)", base, re.I):
+                    base = "image_" + base
+                if base.casefold().endswith("_mask"):
+                    base += "_image"
+                stem, suffix = base, 2
+                while (stem.casefold() in used or
+                       (stem != original and stem.casefold() in reserved)):
+                    stem = f"{base}__{suffix}"
+                    suffix += 1
+                used.add(stem.casefold())
+                if stem != original:
+                    renames.append(f"{original} -> {stem}")
                 if progress:
                     progress(f"Importing {i}/{len(manifest['images'])}: {stem}")
                 image_bytes, mask_bytes = src.read(rec["image_file"]), src.read(rec["mask_file"])
@@ -230,6 +251,11 @@ def import_bundle(source: Path, dest: Path, progress: Callable[[str], None] | No
                     "original_filename", "split", "version", "version_status", "version_kind", "mask_source",
                     "mask_source_tool", "annotated_by", "annotated_at", "contributors", "approved_by",
                     "approved_at", "image_sha256", "original_sha256", "mask_png_sha256", "label_sha256")}
+                records[stem].update(original_stem=original, output_stem=stem,
+                                     image_file=rec["image_file"], mask_file=rec["mask_file"])
+            if renames:
+                warnings.append(f"Renamed {len(renames)} pair(s) for Windows-safe unique names: "
+                                + "; ".join(renames[:5]) + ("; ..." if len(renames) > 5 else ""))
             if not records:
                 raise OAImportError("The export contains no images.")
             unapproved = sorted(s for s, r in records.items() if r.get("version_status") != "approved")

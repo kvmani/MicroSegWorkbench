@@ -46,7 +46,7 @@ def _print_report(report) -> None:
 
 
 def cmd_validate(args: argparse.Namespace) -> int:
-    report = validate_folder(Path(args.folder), args.group_regex)
+    report = validate_folder(Path(args.folder), args.group_regex, args.channel_policy)
     _print_report(report)
     groups: dict[str, int] = {}
     for p in report.pairs:
@@ -58,7 +58,7 @@ def cmd_validate(args: argparse.Namespace) -> int:
 
 def cmd_prepare(args: argparse.Namespace) -> int:
     ws = _ws(args)
-    report = validate_folder(Path(args.folder), args.group_regex)
+    report = validate_folder(Path(args.folder), args.group_regex, args.channel_policy)
     _print_report(report)
     if not report.ok:
         print("Not creating a dataset version: fix the errors above first.", file=sys.stderr)
@@ -77,7 +77,7 @@ def cmd_prepare(args: argparse.Namespace) -> int:
         print(f"  {level.upper():5s} {message}")
     print(f"Split counts: {version.manifest['split_counts']}")
     for group, splits in version.manifest["groups"].items():
-        print(f"  group {group}: {splits[0]}")
+        print(f"  group {group}: {', '.join(splits)}")
     return 0
 
 
@@ -676,6 +676,8 @@ def build_parser() -> argparse.ArgumentParser:
                                  ("prepare", cmd_prepare, "validate and create an immutable dataset version")):
         s = sub.add_parser(name, help=helptext)
         s.add_argument("folder")
+        s.add_argument("--channel-policy", choices=("native", "grayscale"), default="native",
+                       help="grayscale: convert RGB micrographs to lossless grayscale before validation")
         s.add_argument("--group-regex", default=DEFAULT_GROUP_REGEX,
                        help="regex whose first group names the specimen/source group (default: text before first _)")
         if name == "prepare":
@@ -684,8 +686,9 @@ def build_parser() -> argparse.ArgumentParser:
             s.add_argument("--val", type=float, default=0.2)
             s.add_argument("--test", type=float, default=0.2)
             s.add_argument("--seed", type=int, default=42)
-            s.add_argument("--split-source", choices=("group", "annotator"), default="group",
-                           help="group: seeded split by group; annotator: splits assigned in OnlineAnnotator")
+            s.add_argument("--split-source", choices=("group", "annotator", "image"), default="group",
+                           help="group: seeded specimen split (default); image: random by image (specimen views may span splits); "
+                                "annotator: splits assigned in OnlineAnnotator")
         s.set_defaults(func=func)
 
     s = sub.add_parser("hydride-stats", help="HydrideSegmentation feature statistics (optional integration)")

@@ -9,6 +9,7 @@ from ..core.workspace import Workspace
 
 
 class AppContext(QObject):
+    channel_policy_changed = Signal(bool)
     datasets_changed = Signal()
     runs_changed = Signal()
     status_message = Signal(str)
@@ -19,6 +20,7 @@ class AppContext(QObject):
         super().__init__()
         self.workspace = workspace.ensure()
         self.interactive = interactive  # False in automated tests: no modal dialogs
+        self.selected_dataset_id: str | None = None
         self.last_error: str | None = None
         self.advanced = bool(self._ui_settings().get("advanced", False))  # Beginner mode by default
 
@@ -42,6 +44,7 @@ class AppContext(QObject):
 
     def set_workspace(self, workspace: Workspace) -> None:
         self.workspace = workspace.ensure()
+        self.selected_dataset_id = None
         self.datasets_changed.emit()
         self.runs_changed.emit()
 

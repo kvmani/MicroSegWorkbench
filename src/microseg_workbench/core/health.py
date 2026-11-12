@@ -41,6 +41,9 @@ def dataset_health(version: DatasetVersion) -> list[Finding]:
             findings.append(("info", f"There is no {label} split; "
                                      + ("the best epoch is chosen from training loss." if split == "val"
                                         else "results are reported on the validation split instead.")))
+    if version.manifest.get("split_config", {}).get("source") == "image":
+        findings.append(("warn", "Random by image: views from the same specimen can span splits; "
+                                  "scores may overestimate performance on a new specimen."))
     test_groups = {s["group"] for s in samples if s["split"] == "test"}
     if len(test_groups) == 1:
         findings.append(("info", f"All test images come from one group ({next(iter(test_groups))}); scores show how "

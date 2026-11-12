@@ -340,7 +340,13 @@ class AugmentPage(QWidget):
         self.main_tabs.addTab(prep_tab, "A. Preprocessing")
         self.main_tabs.addTab(aug_tab, "B. Augmentation pipeline")
         self.main_tabs.setCurrentIndex(1)
+        self.grayscale = QCheckBox("Convert micrographs to grayscale (before dataset creation)")
+        self.grayscale.setToolTip("Often useful for hydride segmentation. After changing this, return to Data, "
+                                  "Check folder and create a new dataset version. Existing versions stay unchanged.")
+        self.grayscale.toggled.connect(ctx.channel_policy_changed.emit)
+        ctx.channel_policy_changed.connect(self.grayscale.setChecked)
         layout = QVBoxLayout(self)
+        layout.addWidget(self.grayscale)
         layout.addWidget(hint(HELP))
         layout.addWidget(self.main_tabs, 1)
         ctx.datasets_changed.connect(self.refresh)

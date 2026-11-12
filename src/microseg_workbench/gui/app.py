@@ -136,6 +136,8 @@ class MainWindow(QMainWindow):
         self.stack.setCurrentIndex(row)
         self.refresh_status()
         if row == 2:
+            if not self.train_page.is_running():
+                self.train_page.refresh()  # discover versions prepared by the CLI in this workspace
             self.train_page.schedule_estimate()
 
     def open_map_node(self, index: int) -> None:

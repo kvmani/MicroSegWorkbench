@@ -33,6 +33,14 @@ and device. A red &#10007; must be fixed first; the others are advice.</li>
 <li><b>4 Results</b>: inspect test-set metrics and overlays.</li>
 </ol>
 
+<h3>Mixed grayscale/RGB hydride micrographs</h3>
+<p>In <b>Data</b>, select <b>Convert micrographs to grayscale</b> and press <b>Check folder</b> again.
+The option also appears in Preprocess; apply it before creating a version. RGB uses Pillow L (ITU-R 601 luma),
+stored losslessly as PNG. Single-channel files keep their bit depth. Sources and masks stay unchanged;
+mixed bit depths still need a separate decision. Models remember this policy for new RGB images.</p>
+<p>Group splitting is the default. <b>Random by image</b> previews counts but can put views of one specimen
+in different splits, inflating evaluation scores. After creation, use <b>Copy dataset ID</b>; the new version
+is preselected in Training. CLI versions are available when the GUI uses the same workspace.</p>
 <h3>Preparing your own folder</h3>
 <ul>
 <li>One micrograph per file: <code>S01_0001.png</code> (PNG, TIFF, JPEG or BMP; 8- or 16-bit; grayscale or RGB).</li>

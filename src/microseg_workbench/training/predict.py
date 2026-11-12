@@ -82,7 +82,7 @@ def predict_folder(run: RunDir, input_folder: Path, output_folder: Path, checkpo
             if progress:
                 progress(i, len(images), path.name)
             try:
-                loaded = load_image(path)
+                loaded = load_image(path, meta.get("channel_policy", "native"))
             except ImageReadError as exc:
                 errors.append({"file": path.name, "error": str(exc)})
                 continue
@@ -124,6 +124,7 @@ def predict_folder(run: RunDir, input_folder: Path, output_folder: Path, checkpo
             "dataset_id": meta.get("dataset_id"),
             "class_map": class_map.to_dict(),
             "preprocess": prep.to_dict(),
+            "channel_policy": meta.get("channel_policy", "native"),
             "device": device_info.to_dict(),
             "input_folder": str(input_folder),
             "created_at": utc_now(),

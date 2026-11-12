@@ -43,6 +43,8 @@ def compare_models_on_image(runs: list[RunDir], image_path: Path, truth: np.ndar
         if not ckpt.exists():
             raise CompareError(f"Run {run.run_id} has no trained model.")
         model, meta = load_checkpoint(ckpt, torch_device)
+        loaded = load_image(Path(image_path), meta.get("channel_policy", "native"))
+        model_image = to_unit_float(loaded.array)
         if model.cfg.in_channels != loaded.channels:
             raise CompareError(f"{run.run_id} expects {model.cfg.in_channels}-channel images; this image has "
                                f"{loaded.channels}.")
@@ -50,7 +52,7 @@ def compare_models_on_image(runs: list[RunDir], image_path: Path, truth: np.ndar
         prep = Preprocess.from_meta(meta)
         region = prep.analysed_region(h, w)
         start = time.perf_counter()
-        labels = predict_labels(model, prep.crop(image), torch_device, prep)
+        labels = predict_labels(model, prep.crop(model_image), torch_device, prep)
         seconds = time.perf_counter() - start
         values = np.full((h, w), NOT_ANALYSED, np.uint8)
         values[region["top"]:region["top"] + region["height"], region["left"]:region["left"] + region["width"]] = \
@@ -60,7 +62,7 @@ def compare_models_on_image(runs: list[RunDir], image_path: Path, truth: np.ndar
         from .trainer import input_warnings
 
         models.append({
-            "input_warnings": input_warnings(run.info().get("input_profile"), loaded.array, image),
+            "input_warnings": input_warnings(run.info().get("input_profile"), loaded.array, model_image),
             "run_id": run.run_id, "network": info.get("model", {}).get("architecture_title", model.cfg.architecture),
             "class_map": cmap, "values": values, "seconds": seconds, "checkpoint_epoch": meta.get("epoch"),
             "fractions": {c.name: float(counts[k]) / labels.size for k, c in enumerate(cmap.classes)},

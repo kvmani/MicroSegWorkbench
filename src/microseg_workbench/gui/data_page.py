@@ -9,7 +9,7 @@ import numpy as np
 from PySide6.QtCore import QSize, Qt
 from PySide6.QtGui import QColor, QIcon
 from PySide6.QtWidgets import (
-    QComboBox, QDoubleSpinBox, QFileDialog, QFormLayout, QGroupBox, QHBoxLayout, QLabel, QLineEdit, QListView,
+    QApplication, QCheckBox, QComboBox, QDoubleSpinBox, QFileDialog, QFormLayout, QGroupBox, QHBoxLayout, QLabel, QLineEdit, QListView,
     QListWidget, QListWidgetItem, QPushButton, QSlider, QSpinBox, QSplitter, QTableWidget, QTableWidgetItem,
     QTabWidget, QVBoxLayout, QWidget,
 )
@@ -26,10 +26,10 @@ from .widgets import ImageView, array_to_pixmap, hint, run_background
 THUMB = 96
 
 
-def _pair_thumbnail(pair, class_map) -> np.ndarray:
+def _pair_thumbnail(pair, class_map, channel_policy="native") -> np.ndarray:
     """Small image + mask overlay for the gallery; problem pairs get a red frame."""
     try:
-        image = to_unit_float(load_image(pair.image_path).array)
+        image = to_unit_float(load_image(pair.image_path, channel_policy).array)
         step = max(1, int(np.ceil(max(image.shape[:2]) / THUMB)))
         if class_map is not None and pair.ok:
             labels = class_map.channel_lut()[decode_mask(load_mask_values(pair.mask_path), class_map)]
@@ -70,6 +70,12 @@ class DataPage(QWidget):
         self.import_btn.setToolTip("Convert an OnlineAnnotator ML export (ZIP) into a checked folder, keeping class "
                                    "numbers and who annotated/approved each mask.")
         self.import_btn.clicked.connect(self._import_dialog)
+        self.grayscale = QCheckBox("Convert micrographs to grayscale")
+        self.grayscale.setToolTip("Often appropriate for hydride segmentation. Converts RGB using Pillow L "
+                                  "(ITU-R 601 luma) before channel validation; preserves single-channel bit depth. "
+                                  "Source files and masks are unchanged. Recheck folder after changing.")
+        self.grayscale.toggled.connect(self._channel_changed)
+        ctx.channel_policy_changed.connect(self.grayscale.setChecked)
         self.regex = QLineEdit(DEFAULT_GROUP_REGEX)
         self.regex.setToolTip("Regular expression; its first (...) group is the specimen/source name. "
                               "Default: text before the first underscore, e.g. S01 in S01_0003.png.")
@@ -86,6 +92,7 @@ class DataPage(QWidget):
         row2 = QHBoxLayout()
         row2.addWidget(QLabel("Group pattern:"))
         row2.addWidget(self.regex, 1)
+        row2.addWidget(self.grayscale)
         row2.addWidget(self.check_btn)
 
         self.summary = QLabel("No folder checked yet.")
@@ -133,6 +140,7 @@ class DataPage(QWidget):
         self.import_warnings: list[str] = []
         self.split_source = QComboBox()
         self.split_source.addItem("Seeded split by group (fractions below)", "group")
+        self.split_source.addItem("Random by image (specimen views may span splits)", "image")
         self.split_source.addItem("As assigned in OnlineAnnotator", "annotator")
         self.split_source.setToolTip("Use the train/val/test assignment made in the annotation tool. Groups must "
                                      "not span splits.")
@@ -154,6 +162,10 @@ class DataPage(QWidget):
         form.addRow(self.split_view)
         form.addRow(self.split_preview)
         form.addRow(self.create_btn)
+        self.copy_id = QPushButton("Copy dataset ID")
+        self.copy_id.setEnabled(False)
+        self.copy_id.clicked.connect(lambda: QApplication.clipboard().setText(self.last_version_id or ""))
+        form.addRow(self.copy_id)
         self.form = form
         self.set_advanced(ctx.advanced)
         ctx.mode_changed.connect(self.set_advanced)
@@ -212,7 +224,7 @@ class DataPage(QWidget):
 
     def _set_busy(self, busy: bool, message: str = "") -> None:
         self.busy = busy
-        for w in (self.check_btn, self.demo_btn, self.import_btn):
+        for w in (self.check_btn, self.demo_btn, self.import_btn, self.grayscale):
             w.setEnabled(not busy)
         self.create_btn.setEnabled(not busy and bool(self.report and self.report.ok))
         if message:
@@ -263,22 +275,34 @@ class DataPage(QWidget):
             self.ctx.error(self, title, message, details)
         return handler
 
+    def _channel_changed(self, *_args) -> None:
+        self.ctx.channel_policy_changed.emit(self.grayscale.isChecked())
+        self.report = None
+        self.create_btn.setEnabled(False)
+        self.summary.setText("Channel policy changed. Press Check folder to validate and preview it.")
+        self.ctx.workflow_changed.emit()
+
     def check_folder(self) -> None:
         folder = Path(self.folder.text().strip())
         if not self.folder.text().strip():
             self.ctx.error(self, "Check folder", "Choose a folder first (or create demo data).")
             return
         regex = self.regex.text()
+        policy = "grayscale" if self.grayscale.isChecked() else "native"
         self._set_busy(True, f"Checking {folder}...")
         self.report = None
 
         def done(report: ValidationReport) -> None:
+            if policy != ("grayscale" if self.grayscale.isChecked() else "native"):
+                self._set_busy(False)
+                self._channel_changed()
+                return
             self.report = report
             self._set_busy(False, report.summary())
             self._show_report()
             self.ctx.workflow_changed.emit()
 
-        run_background(lambda: validate_folder(folder, regex), done, self._failed("Check folder"))
+        run_background(lambda: validate_folder(folder, regex, policy), done, self._failed("Check folder"))
 
     def _show_report(self) -> None:
         report = self.report
@@ -354,7 +378,7 @@ class DataPage(QWidget):
                     self.gallery.item(i).setIcon(QIcon(array_to_pixmap(rgb)))
             self.thumbs_ready = True
 
-        run_background(lambda: [_pair_thumbnail(p, class_map) for p in pairs], done,
+        run_background(lambda: [_pair_thumbnail(p, class_map, report.channel_policy) for p in pairs], done,
                        lambda msg, details: setattr(self, "thumbs_ready", True))
 
     def _gallery_selected(self, row: int) -> None:
@@ -397,19 +421,21 @@ class DataPage(QWidget):
             return
         self.create_btn.setEnabled(True)
         for w in (self.train, self.val, self.test, self.seed):
-            w.setEnabled(self.split_source.currentData() == "group")
+            w.setEnabled(self.split_source.currentData() != "annotator")
         groups: dict[str, str] = {}
         for p in self.report.pairs:
             if p.ok:
-                groups[p.group] = plan[p.stem]
+                groups[p.stem if self.split_source.currentData() == "image" else p.group] = plan[p.stem]
         counts = Counter(plan.values())
-        sizes = Counter(p.group for p in self.report.pairs if p.ok)
+        sizes = Counter((p.stem if self.split_source.currentData() == "image" else p.group)
+                        for p in self.report.pairs if p.ok)
         self.split_view.set_plan({g: (s, sizes[g]) for g, s in groups.items()})
         lines = []
         for split in ("train", "val", "test"):
             members = sorted(g for g, s in groups.items() if s == split)
             lines.append(f"<b>{split}</b>: {counts.get(split, 0)} images - groups {', '.join(members) or 'none'}")
-        self.split_preview.setText("<br>".join(lines))
+        self.split_preview.setText(("Random by image: specimen views may span splits.<br>"
+                                    if self.split_source.currentData() == "image" else "") + "<br>".join(lines))
 
     def _show_selected(self, *_args) -> None:
         rows = self.table.selectionModel().selectedRows() if self.table.selectionModel() else []
@@ -422,7 +448,7 @@ class DataPage(QWidget):
             self.gallery.blockSignals(False)
         pair = self.report.pairs[row]
         try:
-            image = to_unit_float(load_image(pair.image_path).array)
+            image = to_unit_float(load_image(pair.image_path, self.report.channel_policy).array)
             if self.report.class_map and pair.ok:
                 labels = self.report.class_map.channel_lut()[decode_mask(load_mask_values(pair.mask_path),
                                                                          self.report.class_map)]
@@ -454,6 +480,8 @@ class DataPage(QWidget):
                                  for lv, msg in dataset_health(version))
             self.result.setText(f"Created <b>{version.dataset_id}</b> - train {counts['train']}, "
                                 f"validation {counts['val']}, test {counts['test']}. Continue with step 2.<br>{health}")
+            self.copy_id.setEnabled(True)
+            self.ctx.selected_dataset_id = version.dataset_id
             self.ctx.datasets_changed.emit()
 
         run_background(lambda: create_dataset_version(report, cfg, datasets_dir, name), done,

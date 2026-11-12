@@ -1,5 +1,48 @@
 # Working ledger — agent handoff
 
+## Pilot import and preparation improvements — 2026-11-12
+- Owner requested implementation on `main` from `be5755c` (clean tree, fetched upstream before edits).
+  This section is committed with the implementation; see `git log -- docs/PROGRESS.md` for its commit reference.
+- OnlineAnnotator import keeps every record despite case-only/display-name collisions. Manifest-order suffixes
+  skip all reserved original stems, with identical allocation on Windows/Linux. Windows device names and
+  `_mask` image stems get safe outputs. Exact ZIP member duplicates abort with an actionable error; hashes
+  and decoded mask validation remain mandatory. Provenance records original/output stems and exact image/mask
+  member paths, preserving annotation versions, approvals and assigned splits. GUI/CLI show rename summaries.
+- Explicit native/default or grayscale channel policy applies before channel validation, including Data previews.
+  Data and Preprocess expose synchronized grayscale controls; users can recheck a mixed-channel folder in place.
+  RGB uses Pillow L / ITU-R 601-2 and lossless PNG; single-channel source files retain bytes/bit depth, masks
+  retain labels/alignment, mixed bit depths remain errors. Policy, source/stored hashes and conversion notes
+  persist in the dataset, identity, run/checkpoint and prediction metadata. Folder and same-image model inference
+  apply the model policy. Legacy datasets/checkpoints without the field retain native behavior and original IDs.
+- Random by image is explicit and labelled with specimen-overlap warnings. Group splitting stays the default;
+  OnlineAnnotator group leakage checks remain. Seed 42 / 91 images / 80:10:10 produces **73 train, 9 val, 9 test**.
+  GUI exposes full dataset ID/counts and Copy dataset ID, preselects the created version in Training, and discovers
+  CLI-prepared versions when entering Training using the same workspace without overriding manual selection.
+- Validation: Python 3.12 / torch 2.15.0+cpu / Qt offscreen / Linux. Final full suite **218 passed, 5 skipped in
+  171.15 s** (`QT_QPA_PLATFORM=offscreen OMP_NUM_THREADS=2 MKL_NUM_THREADS=2
+  /workspace/.venvs/msw/bin/python -m pytest -q -ra`). Skips: 2 optional HydrideSegmentation, 3 actual SMB share.
+  Final pilot suite separately **6 passed in 22.26 s**, including additional 16-bit byte-preservation assertions.
+  Synthetic ZIP contains 91 distinct pairs (73 grayscale / 18 RGB), case-only collision, occupied `__2` suffix,
+  distinct images/masks and submitted annotations. CLI and GUI perform import/recheck/preparation, real CPU
+  training and RGB prediction; tests assert all records and paths, approvals/splits, conversion pixels, mask
+  labels/dimensions, untouched sources, legacy behavior, ZIP/folder naming equivalence and CLI/GUI discovery.
+- `msw --workspace /workspace/msw-onboarding-data selftest`: **0 failures**, actual CPU training/evaluation,
+  segmentation and deterministic-repeat checks passed; CPU warning and unavailable-share skips are explicit.
+  GUI screenshot inspected offscreen at `/tmp/msw-pilot-data.png`; generated data/screenshots remain outside Git.
+  Checked OnlineAnnotator export interface from a read-only reference checkout; no reference repo changes.
+- Cloud onboarding: editable install `/workspace/.venvs/msw`; repeatable pinned primary dependencies installed,
+  install script rerun successfully and pip check clean. Saved complete `install_script` and `start_skill`, and
+  proposed additive `api.github.com` domain access (no prior custom hosts) in the environment draft. User review,
+  save/publish and fresh-task restoration remain outstanding. No secrets requested or recorded.
+- **Platform gaps:** Windows interactive GUI **not verified**; Windows CI results **not observed**. The existing
+  Windows/Linux Actions matrix automatically collects `tests/test_pilot.py` on push. `gh api`/Actions-status reads
+  returned Forbidden; runtime still excludes api.github.com, with the domain addition awaiting settings review.
+  CUDA training **not verified**: no NVIDIA device, CPU-only torch. Office images/exports were neither needed
+  nor committed. No interactive desktop-control tool was available; managed desktop was enabled with state
+  unknown for environment `ccarenv_b64_Y2NhcmVudl8xYzY0NmQ3MGZkZjQ4MTkxYmRlMGJlZTYxOTEzYjQ2Nw`.
+- Next: inspect Windows Actions results after API access is available; perform interactive Windows GUI and
+  actual CUDA/office acceptance. These limits do not establish scientific acceptance or close prior reviews.
+
 ## Cloud setup and training usability review — 2026-11-05
 - Owner requested cloud onboarding, then code review, thorough testing and improvements for beginner and
   experienced microstructure-training users. Focused review of baseline `2624c8c` found three confirmed
